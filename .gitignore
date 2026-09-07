@@ -1,0 +1,10 @@
+.env
+.DS_Store
+__MACOSX/
+.ipynb_checkpoints/
+anaconda_projects/
+__pycache__/
+*.pyc
+
+# Local RAG knowledge base
+data/*.pdf
