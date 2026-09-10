@@ -8,7 +8,7 @@ The project combines semantic retrieval, an open-weight LLM, reference-free RAG 
 
 - RAG pipeline over authoritative cybersecurity documents
 - Sentence-transformer-based semantic retrieval
-- LLaMA 3.1 8B generation through Groq
+- GPT-OSS 20B generation through Groq
 - ChromaDB vector retrieval
 - Context Relevance, Answer Relevance, and Faithfulness evaluation
 - Per-query error and failure analysis
@@ -31,7 +31,7 @@ ChromaDB Vector Retrieval
         ↓
 Retrieved Context
         ↓
-LLaMA 3.1 8B via Groq
+GPT-OSS 20B via Groq
         ↓
 Generated Answer
         ↓
@@ -42,12 +42,14 @@ RAG Evaluation + Error Analysis + Ablation Study
 
 ```text
 phishing-defence-rag/
-├── phishing_defence_rag.ipynb    # Main notebook: end-to-end RAG pipeline
-├── README.md                      # Project documentation
-├── requirements.txt               # Python dependencies
-├── .gitignore                     # Excludes secrets, local files, and source PDFs
-├── ablation_v1_comparison.xlsx    # Baseline vs cleaned-corpus comparison
-└── data/                          # Local knowledge-base documents (PDFs not committed)
+├── phishing_defence_rag.ipynb      # Main notebook: end-to-end RAG pipeline
+├── README.md                        # Project documentation
+├── requirements.txt                 # Python dependencies
+├── .gitignore                       # Excludes secrets, local files, and source PDFs
+├── evaluation_results.xlsx          # Baseline evaluation results
+├── ablation_v1_comparison.xlsx      # Baseline vs cleaned-corpus comparison
+├── error_analysis_details.xlsx      # Query-level diagnostic outputs
+└── data/                            # Local knowledge-base documents (PDFs not committed)
 ```
 
 > Third-party source PDFs are intentionally excluded from version control. The notebook expects the local knowledge-base files to be placed in the `data/` directory before execution.
@@ -56,11 +58,11 @@ phishing-defence-rag/
 
 The local knowledge base used for the experiments contains five phishing and cybersecurity documents:
 
-- *Anti-Phishing Training Program Support* — CISA
-- *Avoiding Social Engineering and Phishing Attacks* — CISA
-- *Counter-Phishing Guidance for Non-Federal Organizations* — CISA
-- *A Review of Phishing Attacks and Countermeasures for Internet of Things-Based Environments*
-- *Phishing-Resistant Multi-Factor Authentication (MFA) Success Story: USDA FIDO Implementation* — CISA
+- **Anti-Phishing Training Program Support** — CISA
+- **Avoiding Social Engineering and Phishing Attacks** — CISA
+- **Counter-Phishing Guidance for Non-Federal Organizations** — CISA
+- **A Review of Phishing Attacks and Countermeasures for Internet of Things-Based Environments**
+- **Phishing-Resistant Multi-Factor Authentication (MFA) Success Story: USDA FIDO Implementation** — CISA
 
 The source documents are not redistributed in this repository.
 
@@ -131,13 +133,13 @@ The pipeline includes short delays between API calls to reduce the likelihood of
 
 ## Evaluation
 
-The project evaluates the RAG pipeline using three reference-free metrics:
+The project uses three lightweight, reference-free metrics implemented with embedding-based cosine similarity:
 
-- **Context Relevance** — whether retrieved context is relevant to the query
-- **Answer Relevance** — whether the generated response addresses the query
-- **Faithfulness** — whether the answer is supported by the retrieved context
+- **Context Relevance** — semantic alignment between the query and retrieved context
+- **Answer Relevance** — semantic alignment between the query and generated answer
+- **Faithfulness** — an embedding-based proxy measuring semantic alignment between the generated answer and retrieved context; it is not a claim-level factual-support metric
 
-In addition to aggregate metrics, the notebook performs per-query analysis because average scores can hide important query-level regressions.
+These metrics are used as diagnostic signals for controlled comparison and failure analysis. They do not replace claim-level grounding evaluation or human judgment.
 
 ## Ablation Study
 
@@ -145,31 +147,32 @@ A preprocessing ablation compares the baseline corpus with a cleaned version of 
 
 | Metric | Baseline Mean | V1 Cleaned Mean | Delta |
 |---|---:|---:|---:|
-| Context Relevance | 0.5424 | 0.5541 | +0.012 |
-| Answer Relevance | 0.7573 | 0.7507 | -0.007 |
-| Faithfulness | 0.6426 | 0.6549 | +0.012 |
+| Context Relevance | 0.5424 | 0.5541 | +0.0118 |
+| Answer Relevance | 0.5286 | 0.3570 | -0.1716 |
+| Faithfulness | 0.5461 | 0.3691 | -0.1770 |
 
-The experiment shows that corpus cleaning can improve average retrieval quality and faithfulness while still degrading individual queries. This motivates query-level evaluation rather than relying only on aggregate scores.
+The V1 cleaning intervention slightly improved average Context Relevance, but reduced Answer Relevance and Faithfulness in the current run. The result highlights that better retrieval-level similarity does not necessarily translate into better end-to-end RAG generation quality.
 
 ## Failure Analysis
 
-The notebook includes case-level diagnostics for retrieval and generation failures, including:
+The project records query-level diagnostic outputs for retrieval and generation failures, including:
 
 - metadata pollution in retrieved chunks
 - query-dependent effects of preprocessing
 - chunk-boundary changes after cleaning
 - prompt/context construction issues
-- cases where aggregate improvements hide individual regressions
+- cases where aggregate metrics hide individual regressions
 
-These analyses are preserved alongside the implementation so that experimental conclusions can be traced back to retrieved evidence and generated outputs.
+Detailed outputs are exported to `error_analysis_details.xlsx` and can be inspected alongside the notebook implementation.
 
 ## Reproducibility Notes
 
 - The ChromaDB collection is rebuilt on each full run; no persistent vector store is required.
 - The language model is accessed through the Groq API with `temperature=0.3`.
 - Small metric variations may occur across independent runs because generation is stochastic.
-- Evaluation and diagnostic results can be exported to `.xlsx` files for inspection.
+- Evaluation and diagnostic results are exported to `.xlsx` files for inspection.
 - Local secrets and third-party PDFs are excluded from version control.
+- Numerical results in this README correspond to the current recorded run and should be regenerated if the model or generation settings are changed.
 
 ## Project Scope
 
