@@ -67,12 +67,24 @@ def _needs_clarification(state):
     return None
 
 
-def _record_tool(state, name, result=None, error=None, key=None, ref=None):
+def _record_tool(state, name, result=None, error=None, key=None, ref=None, task_id=None, plan_key=None):
     history = list(state.get("tool_history", []))
     history.append({"tool": name, "status": "error" if error else "ok" if result else "no_result",
                     "result_ref": ref or f"{state['run_id']}:{name}", "key": key,
+                    "task_id": task_id, "plan_key": plan_key,
                     "error_type": type(error).__name__ if error else None})
     return history
+
+
+def _renumber_knowledge(evidence):
+    number = 0
+    result = []
+    for row in evidence:
+        if row["kind"] == "knowledge":
+            number += 1
+            row = {**row, "id": f"E{number}"}
+        result.append(row)
+    return result
 
 
 def _build_graph(retriever, config, completion, checkpointer, planner=None, verifier=None):
@@ -99,10 +111,12 @@ def _build_graph(retriever, config, completion, checkpointer, planner=None, veri
         facts = update_facts(state.get("facts", []), reported, state["run_id"])
         invalidated, retained = partition_corrected_tasks(state.get("plan", []), changed)
         cache = state.get("cached", {})
-        history = [{**h, "result_ref": f"{state['run_id']}:{h['tool']}:cached", "cached": True}
+        history = [{**h, "result_ref": f"{state['run_id']}:{h['task_id']}:cached", "cached": True}
                    for h in cache.get("tool_history", []) if h["status"] == "ok"]
-        valid_tools = {h["tool"] for h in history}
-        evidence = [e for e in cache.get("evidence", []) if e["tool"] in valid_tools]
+        ref_map = {old["result_ref"]: new["result_ref"] for old, new in
+                   zip((h for h in cache.get("tool_history", []) if h["status"] == "ok"), history)}
+        evidence = _renumber_knowledge([{**e, "result_ref": ref_map[e["result_ref"]]} for e in cache.get("evidence", [])
+                                        if e.get("result_ref") in ref_map])
         return {"facts": facts, "tool_history": history, "evidence": evidence, "clarification": {},
                 "answer": {}, "verification": [], "plan": [], "invalidated_tasks": invalidated,
                 "retained_tasks": retained,
@@ -135,6 +149,7 @@ def _build_graph(retriever, config, completion, checkpointer, planner=None, veri
         if task is None:
             return {"plan": plan}
         name, params = task["tool"], dict(task["params"])
+        plan_key = tool_key(name, params)
         email = next((e["data"] for e in state["evidence"] if e["kind"] == "email"), None)
         if name == "analyze_iocs":
             if not email or not email["urls"]:
@@ -142,7 +157,8 @@ def _build_graph(retriever, config, completion, checkpointer, planner=None, veri
                 return {"plan": plan}
             params = {"items": email["urls"]}
         key = tool_key(name, params)
-        previous = next((h for h in state["tool_history"] if h.get("key") == key and h["status"] == "ok"), None)
+        previous = next((h for h in state["tool_history"] if h.get("key") == key and
+                         h.get("plan_key") == plan_key and h["status"] == "ok"), None)
         if previous:
             task.update(status="ok", evidence_ref=[previous["result_ref"]])
             return {"plan": plan}
@@ -160,11 +176,11 @@ def _build_graph(retriever, config, completion, checkpointer, planner=None, veri
         except Exception as exc:
             error = exc
         ref = f"{state['run_id']}:{name}:{budget['tools']}"
-        history = _record_tool(state, name, result, error, key, ref)
+        history = _record_tool(state, name, result, error, key, ref, task["task_id"], plan_key)
         task.update(status=history[-1]["status"], evidence_ref=[ref] if result else [])
         evidence, facts = list(state["evidence"]), state["facts"]
         if name == "parse_email" and result:
-            evidence.append({"id": "M1", "kind": "email", "tool": name, "data": result})
+            evidence.append({"id": "M1", "kind": "email", "tool": name, "data": result, "result_ref": ref})
             facts = update_facts(facts, {"email_subject": result["subject"], "email_from": result["from"],
                                          "email_sha256": result["sha256"]}, state["run_id"], "observed")
             descendants = {task["task_id"]}
@@ -173,10 +189,11 @@ def _build_graph(retriever, config, completion, checkpointer, planner=None, veri
                     dependent["status"] = "pending"
                     descendants.add(dependent["task_id"])
         elif name == "analyze_iocs" and result:
-            evidence.append({"id": "I1", "kind": "iocs", "tool": name, "data": result})
+            evidence.append({"id": "I1", "kind": "iocs", "tool": name, "data": result, "result_ref": ref})
         elif name == "retrieve_knowledge" and result:
-            evidence.extend({"id": f"E{i}", "kind": "knowledge", "tool": name, "data": hit}
-                            for i, hit in enumerate(result, 1))
+            start = 1 + sum(e["kind"] == "knowledge" for e in evidence)
+            evidence.extend({"id": f"E{i}", "kind": "knowledge", "tool": name, "data": hit, "result_ref": ref}
+                            for i, hit in enumerate(result, start))
         return {"plan": plan, "budget": budget, "tool_history": history,
                 "evidence": evidence, "facts": facts}
 
@@ -220,11 +237,11 @@ def _build_graph(retriever, config, completion, checkpointer, planner=None, veri
         if corrected:
             invalidated, retained = partition_corrected_tasks(state["plan"], {field})
             affected_keys = {tool_key(t["tool"], t["params"]) for t in invalidated}
-            affected_tools = {t["tool"] for t in invalidated}
+            affected_refs = {h["result_ref"] for h in state["tool_history"] if h.get("plan_key") in affected_keys}
             changes.update({"invalidated_tasks": [*state.get("invalidated_tasks", []), *invalidated],
                             "retained_tasks": [*state.get("retained_tasks", []), *retained],
-                            "tool_history": [h for h in state["tool_history"] if h.get("key") not in affected_keys],
-                            "evidence": [e for e in state["evidence"] if e["tool"] not in affected_tools],
+                            "tool_history": [h for h in state["tool_history"] if h.get("plan_key") not in affected_keys],
+                            "evidence": _renumber_knowledge([e for e in state["evidence"] if e.get("result_ref") not in affected_refs]),
                             "plan": [], "answer": {}, "verification": [], "context": "", "recovery": "replan",
                             "budget": {**state["budget"], "replans": state["budget"]["replans"] + 1}})
         return changes
@@ -323,7 +340,8 @@ def _build_graph(retriever, config, completion, checkpointer, planner=None, veri
         tasks = [dict(t) for t in state["plan"]]
         tasks.append({"task_id": f"R{budget['retrieval_extra']}", "goal": "Fill knowledge gap",
                       "tool": "retrieve_knowledge", "params": {"query": state["request"]["question"] + " authoritative phishing guidance"},
-                      "dependency": [], "completion_condition": "tool result recorded", "status": "pending", "evidence_ref": []})
+                      "dependency": [], "completion_condition": "tool result recorded", "status": "pending",
+                      "evidence_ref": [], "fact_dependencies": []})
         return {"budget": budget, "plan": tasks, "context": "", "status": "running"}
 
     def retry(state):
@@ -416,9 +434,13 @@ class A1Workflow:
             changed = ({name for name, value in supplied.items() if name in old_facts and old_facts[name] != value}
                        if isinstance(supplied, dict) else set())
             _, retained = partition_corrected_tasks(previous.get("plan", []), changed)
-            usable = {t["tool"] for t in retained} if changed else None
-            cache = {"tool_history": [h for h in previous.get("tool_history", []) if usable is None or h["tool"] in usable],
-                     "evidence": [e for e in previous.get("evidence", []) if usable is None or e["tool"] in usable]}
+            reusable = {(t["task_id"], tool_key(t["tool"], t["params"])) for t in retained
+                        if t["status"] == "ok"}
+            history = [h for h in previous.get("tool_history", []) if h["status"] == "ok" and
+                       (h.get("task_id"), h.get("plan_key")) in reusable]
+            refs = {h["result_ref"] for h in history}
+            cache = {"tool_history": history,
+                     "evidence": [e for e in previous.get("evidence", []) if e.get("result_ref") in refs]}
         result = self.graph.invoke({"case_id": case_id, "run_id": run_id or uuid.uuid4().hex,
                                     "request": request, "cached": cache}, cfg)
         return result

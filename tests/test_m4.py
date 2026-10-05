@@ -75,6 +75,8 @@ class M4Tests(unittest.TestCase):
             with self.subTest(change=change), self.assertRaises(ValueError):
                 validate_plan([{**task, **change}], request)
         with self.assertRaises(ValueError):
+            validate_plan([{k: v for k, v in task.items() if k != "fact_dependencies"}], request)
+        with self.assertRaises(ValueError):
             validate_plan([task, {**task, "task_id": "T2"}], request)
         with self.assertRaises(ValueError):
             validate_plan([dict(task, task_id=f"T{i}", params={"query": str(i)}) for i in range(5)], request)
@@ -131,6 +133,20 @@ class M4Tests(unittest.TestCase):
         self.assertEqual(result[0]["recovery_action"], "repair_answer")
         state["answer"]["answer"] = "Phishing links are not suspicious [E1]."
         self.assertEqual(verify(state)[0]["failure_type"], "unsupported_claim")
+        state["answer"]["answer"] = "Phishing links prove account access [E1]."
+        self.assertEqual(verify(state)[0]["failure_type"], "unsupported_claim")
+
+    def test_each_substantive_sentence_needs_its_own_citation(self):
+        state = {"request": {"kind": "knowledge", "question": "What is phishing?"},
+                 "answer": {"answer": "Phishing links are risky [E1]. NASA runs all phishing campaigns."},
+                 "evidence": [{"id": "E1", "kind": "knowledge", "data": HIT}],
+                 "context": real_build_context([HIT], 10000)["text"],
+                 "facts": [], "tool_history": []}
+        self.assertEqual(verify(state)[0]["failure_type"], "missing_citation")
+        state["answer"]["answer"] = "Phishing links are risky [E1]."
+        self.assertEqual(verify(state), [])
+        state["answer"]["answer"] = "NASA runs all phishing campaigns [E1]."
+        self.assertEqual(verify(state)[0]["failure_type"], "unsupported_claim")
 
     def test_context_omission_rebuilds_before_final_answer(self):
         omitted = {"request": {"kind": "knowledge", "question": "What is phishing?"},
@@ -171,6 +187,34 @@ class M4Tests(unittest.TestCase):
         self.assertEqual([t["task_id"] for t in invalidated], ["A", "B"])
         self.assertEqual([(t["task_id"], t["status"]) for t in retained], [("C", "ok")])
 
+    def test_custom_plan_reuses_only_matching_task_and_params(self):
+        class DistinctRetriever(Retriever):
+            def retrieve(self, query, top_k):
+                self.calls.append(query)
+                return [{**HIT, "chunk_id": "chunk-" + query.replace(" ", "-")}]
+        retriever = DistinctRetriever()
+        def planner(state):
+            clicked = next((f["value"] for f in reversed(state["facts"])
+                            if f["name"] == "clicked_link" and f["status"] == "user_reported"), None)
+            return [
+                {"task_id": "T1", "goal": "Action guidance", "tool": "retrieve_knowledge",
+                 "params": {"query": f"action {clicked}"}, "dependency": [],
+                 "completion_condition": "tool result recorded", "status": "pending",
+                 "evidence_ref": [], "fact_dependencies": ["clicked_link"]},
+                {"task_id": "T2", "goal": "General guidance", "tool": "retrieve_knowledge",
+                 "params": {"query": "general"}, "dependency": [],
+                 "completion_condition": "tool result recorded", "status": "pending",
+                 "evidence_ref": [], "fact_dependencies": []},
+            ]
+        w = self.workflow(retriever=retriever, planner=planner)
+        request = {"kind": "knowledge", "question": "What is phishing?"}
+        w.run("custom", {**request, "facts": {"clicked_link": True}})
+        changed = w.run("custom", {**request, "facts": {"clicked_link": False}})
+        self.assertEqual(retriever.calls, ["action True", "general", "action False"])
+        self.assertEqual([t["task_id"] for t in changed["invalidated_tasks"]], ["T1"])
+        self.assertEqual([t["task_id"] for t in changed["retained_tasks"]], ["T2"])
+        self.assertEqual([h["task_id"] for h in changed["tool_history"] if h.get("cached")], ["T2"])
+
     def test_parse_retry_success_reactivates_ioc_dependency(self):
         real_parse = graph_module.parse_email
         calls = []
@@ -204,7 +248,7 @@ class M4Tests(unittest.TestCase):
                 tasks.append({"task_id": f"T{index}", "goal": "Find evidence", "tool": "retrieve_knowledge",
                               "params": {"query": f"{state['plan_revision']} query {index}"},
                               "dependency": [], "completion_condition": "tool result recorded",
-                              "status": "pending", "evidence_ref": []})
+                              "status": "pending", "evidence_ref": [], "fact_dependencies": []})
             return tasks
         def verifier(state):
             return [finding("changed_direction", "replan", "new evidence")]

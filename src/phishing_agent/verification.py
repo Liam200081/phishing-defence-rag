@@ -8,7 +8,7 @@ STOP = {"the", "and", "are", "for", "with", "from", "this", "that", "your", "hav
 
 def _tokens(text):
     words = re.findall(r"[a-z0-9]+", text.lower())
-    return {"caution" if word in {"cautious", "caution", "suspicious"} else
+    return {"risk" if word in {"cautious", "caution", "suspicious", "risky", "risk"} else
             word[:-1] if word.endswith("s") and len(word) > 4 else word
             for word in words if word not in STOP and len(word) > 2}
 
@@ -29,26 +29,33 @@ def _unsupported_claim(body, evidence_by_id):
     for sentence in re.split(r"(?<=[.!?])\s+|\n+", body):
         refs = re.findall(r"\[([EMI]\d+)\]", sentence)
         claim = re.sub(r"\[[EMI]\d+\]", "", sentence).strip()
-        if not claim or not refs:
+        if not claim or not _tokens(claim):
             continue
+        if not refs:
+            return "missing_citation", claim
         source = " ".join(_evidence_text(evidence_by_id[ref]) for ref in refs)
         if not source:
             continue  # Legacy evidence without payload is handled by citation checks.
         claim_terms, source_terms = _tokens(claim), _tokens(source)
-        if claim_terms - source_terms:
-            return claim
         for negated in re.findall(r"\b(?:not|no|without)\s+([a-z]+)\b", claim.lower()):
             if not re.search(r"\b(?:not|no|without)\s+" + re.escape(negated) + r"\b", source.lower()):
-                return claim
+                return "unsupported_claim", claim
+        for negated in re.findall(r"\b(?:not|no|without)\s+([a-z]+)\b", source.lower()):
+            if re.search(r"\b" + re.escape(negated) + r"\b", claim.lower()) and not re.search(
+                    r"\b(?:not|no|without)\s+" + re.escape(negated) + r"\b", claim.lower()):
+                return "unsupported_claim", claim
         # Specific identifiers and categorical verdicts need direct corroboration.
-        identifiers = re.findall(r"\b(?:\d+(?:\.\d+)*|[\w.-]+@[\w.-]+|https?://\S+)\b", claim)
+        identifiers = re.findall(r"\b(?:\d+(?:\.\d+)*|[\w.-]+@[\w.-]+|https?://\S+|[A-Z]{2,})\b", claim)
         if any(identifier.lower() not in source.lower() for identifier in identifiers):
-            return claim
+            return "unsupported_claim", claim
         if re.search(r"\b(?:guaranteed|definitely|certainly|always|never)\b", claim, re.I):
-            return claim
+            return "unsupported_claim", claim
         if re.search(r"\b(?:safe|malicious|compromised|breached)\b", claim, re.I) and not re.search(
                 r"\b(?:safe|malicious|compromised|breached)\b", source, re.I):
-            return claim
+            return "unsupported_claim", claim
+        # Allow ordinary paraphrases; several novel concrete terms signal a new assertion.
+        if not claim_terms.intersection(source_terms) or len(claim_terms - source_terms) >= 2:
+            return "unsupported_claim", claim
     return None
 
 
@@ -97,5 +104,6 @@ def verify(state):
         return [finding("superseded_fact", "replan", "answer predates corrected facts")]
     unsupported = _unsupported_claim(body, evidence_by_id)
     if unsupported:
-        return [finding("unsupported_claim", "repair_answer", "cited claim is not supported by cited content: " + unsupported[:160])]
+        failure_type, claim = unsupported
+        return [finding(failure_type, "repair_answer", "claim lacks matching cited support: " + claim[:160])]
     return []

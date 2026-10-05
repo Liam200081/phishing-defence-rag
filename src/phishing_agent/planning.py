@@ -49,7 +49,7 @@ def validate_plan(tasks, request):
     for task in tasks:
         if not isinstance(task, dict) or not all(k in task for k in (
                 "task_id", "goal", "tool", "params", "dependency", "completion_condition",
-                "status", "evidence_ref")):
+                "status", "evidence_ref", "fact_dependencies")):
             raise ValueError("incomplete task")
         task_id, tool, params = task["task_id"], task["tool"], task["params"]
         if not isinstance(task_id, str) or not task_id or task_id in seen:
@@ -60,8 +60,10 @@ def validate_plan(tasks, request):
             raise ValueError("task goal and completion condition required")
         if task["status"] != "pending" or task["evidence_ref"] != []:
             raise ValueError("new tasks must be pending without evidence")
-        if (not isinstance(task.get("fact_dependencies", []), list) or
-                any(not isinstance(name, str) or not name for name in task.get("fact_dependencies", []))):
+        fact_dependencies = task["fact_dependencies"]
+        if (not isinstance(fact_dependencies, list) or
+                any(not isinstance(name, str) or not name for name in fact_dependencies) or
+                len(fact_dependencies) != len(set(fact_dependencies))):
             raise ValueError("invalid fact dependencies")
         deps = task["dependency"]
         if not isinstance(deps, list) or len(deps) != len(set(deps)) or any(d not in seen for d in deps):
