@@ -22,3 +22,27 @@
 ## 验收结论
 
 当前没有可发布的 B1/W0/A1 三项 KPI、逐 Case 人工复核或 held_out 重复运行。`evaluation/M5.md` 中的冻结复核口径未用于修改任何 holdout Case 或成功条件。完成验收仍需在服务额度足够且请求大小被服务接受的条件下，用同一固定配置重新运行完整对照，逐条复核并保存独立评分文件。若该模型持续无法接受长邮件请求，必须先将这一限制作为独立设计问题处理，不能用删 Case、改 holdout 或把无 usage 记零的方式制造结果。
+
+## 收敛补跑：复用有效结果
+
+按“无模型服务错误、usage 完整”筛选，上述 development 部分记录可直接复用 B1 5 条、W0 3 条、A1 1 条；没有同一 Case 的三模式完整配对。`SA-00151-1` 的 A1 结果保留原记录，只补跑 B1/W0（运行 `M5-c8621d3b69bd44cc94a38dab4b8b38b6`）。配置与知识快照指纹相同，业务图、工具和 prompt 未变；M5 runner 的提交版本不同，执行时间也不同，因此只用于诊断，不声称总体质量效应。
+
+短邮件 holdout Case `SA-00003-1` 在冻结配置下完成三模式配对（运行 `M5-11eafe7f2c24481fbbfbc0c32a42926e`，提交 `bc947b1`）。[逐断言复核草稿](reviews/SA-00003-1-codex-draft.json)及本地 `score-cb1d0d6e1c4441c7.json` 可逐项核对；草稿由 Codex 编制，**没有人类复核签署**，不得作为正式 holdout KPI。
+
+| 模式 | 有效 Case | 草稿 Case Success | 草稿 Evidence Support | 已知 token | LLM / Tool 调用 | Cost per Successful Case |
+| --- | ---: | ---: | ---: | ---: | ---: | --- |
+| B1 | 1/1 | 0/1 | 1/5 | 2,276 | 1 / 1 | 无成功 Case，不可计算 |
+| W0 | 1/1 | 0/1 | 7/9 | 1,897 | 1 / 2 | 无成功 Case，不可计算 |
+| A1 | 1/1 | 0/1 | 0/0（N/A） | 3,717 | 2 / 2 | 无成功 Case，不可计算 |
+
+B1 只收到问题，输出通用清单而非该邮件的观察；W0 观察到邮件字段，但将未核实的发件身份描述为“routine”；A1 的验证与修复后仍未给出有引用的观察。单 Case 草稿不能代表 12 个 holdout Case 的效果。Case Success 与 Evidence Support 已在评分实现中解耦：非关键的不受支持断言只降低 Evidence Support；预定义条件未满足或关键错误才使 Case 失败。
+
+Reflection OFF 只补跑同一 holdout Case（运行 `M5-f4c7bbc17763400b9423b680f1145e2b`，提交 `99631c7`）：1 次 LLM、2 次工具、2,432 token，回答完整；Reflection ON 为 2 次 LLM、2 次工具、3,717 token，最终受限。该 Case 的 Reflection 增加 **1 次 LLM 与 1,285 token**，并未带来可验收回答；仅此一例不证明总体趋势。Planning OFF 的相同 Case 补跑保存于 `M5-be3dfa66798f482dbeaaa2f862d24d1e/partial.json`，遇每日配额 429 后停止，**没有有效邮件场景 Planning 消融**。
+
+代表性原因链：
+
+- `SA-00003-1` A1：`trace[8]` 的验证 finding 指向未受证据支持的邮件观察草稿，修复后 `trace[11]` 仍报告缺少引用，最终回答是受限说明。类型：`verification/reflection` 与 `answer/grounding`；对应的 B1/W0/A1 调用和证据均保存在该 run 中。
+- `PP-5-2` W0：原 development 部分记录的 `trace[4]` 中 `analyze_iocs` 明确为脚本注入的 `TimeoutError`，工具引用 `384c3e7b1be942aabe1ba0db69361c2a:analyze_iocs:2`；最终回答却推断高风险并提供未在证据中确认的银行报告地址。类型：`tool routing/execution` 后接 `answer/grounding`。这是故障注入 Case，不混同正常业务成功率。
+- `PP-2-1` A1：原部分记录的 `calls[1]`、`calls[2]`、`calls[4]`、`calls[5]` 为 HTTP 413，最终回答 `request_error`；类型：`service/provider`。这是运行有效性问题，不能归因于 Agent 策略。
+
+完整 holdout（12 Case）与既定重复运行仍未完成；每日 token 额度在本轮再次返回 429。所有有效结果原样保留，未为提高指标改动 holdout、prompt、阈值或成功条件。
