@@ -1,5 +1,6 @@
 """Parse untrusted RFC 822/MIME bytes without fetching or executing content."""
 import hashlib
+import html
 import re
 from email import policy
 from email.parser import BytesParser
@@ -7,21 +8,33 @@ from html.parser import HTMLParser
 from pathlib import Path
 
 URL = re.compile(r"(?i)\b(?:https?://|hxxps?://)[^\s<>\"']+")
+HTML_URL_ATTRIBUTE = re.compile(r'''(?i)(?<![\w:-])(href|src)\s*=\s*(?:"([^"]*)"|'([^']*)'|([^\s>]+))''')
 
 
 class _Links(HTMLParser):
-    def __init__(self):
+    def __init__(self, source):
         super().__init__(convert_charrefs=True)
         self.links = []
-        self.text = []
+        self.attribute_spans = []
+        self.line_starts = [0]
+        for match in re.finditer("\n", source):
+            self.line_starts.append(match.end())
 
     def handle_starttag(self, tag, attrs):
-        for key, value in attrs:
-            if key in {"href", "src"} and value:
-                self.links.append((tag, key, value))
+        line, column = self.getpos()
+        tag_start = self.line_starts[line - 1] + column
+        for match in HTML_URL_ATTRIBUTE.finditer(self.get_starttag_text() or ""):
+            key = match.group(1).lower()
+            group = next(i for i in (2, 3, 4) if match.group(i) is not None)
+            raw_value = match.group(group)
+            start = tag_start + match.start(group)
+            end = tag_start + match.end(group)
+            self.attribute_spans.append((start, end))
+            if raw_value:
+                self.links.append((tag, key, html.unescape(raw_value), raw_value, start, end))
 
-    def handle_data(self, data):
-        self.text.append(data)
+    def handle_startendtag(self, tag, attrs):
+        self.handle_starttag(tag, attrs)
 
 
 def parse_email(*, text=None, path=None):
@@ -67,21 +80,26 @@ def parse_email(*, text=None, path=None):
             warnings.append(f"part_{index}_decode_error:{type(exc).__name__}")
             value = (part.get_payload(decode=True) or b"").decode("utf-8", errors="replace")
         bodies.append({"part": index, "content_type": content_type, "text": value})
-        for match in URL.finditer(value):
-            urls.append({"raw": match.group().rstrip(".,;!?)"), "location":
-                         {"part": index, "field": "body", "start": match.start(),
-                          "end": match.start() + len(match.group().rstrip(".,;!?)"))}})
+        parser = None
         if content_type == "text/html":
-            parser = _Links()
+            parser = _Links(value)
             try:
                 parser.feed(value)
-                for tag, attribute, target in parser.links:
-                    start = value.find(target)
-                    urls.append({"raw": target, "location": {"part": index,
-                                 "field": f"html_{tag}_{attribute}", "start": start if start >= 0 else None,
-                                 "end": start + len(target) if start >= 0 else None}})
             except (ValueError, TypeError) as exc:
                 warnings.append(f"part_{index}_html_error:{type(exc).__name__}")
+        for match in URL.finditer(value):
+            if parser and any(start <= match.start() < end for start, end in parser.attribute_spans):
+                continue
+            source_text = match.group().rstrip(".,;!?)")
+            urls.append({"raw": html.unescape(source_text) if parser else source_text,
+                         "source_text": source_text, "location":
+                         {"part": index, "field": "body", "start": match.start(),
+                          "end": match.start() + len(source_text)}})
+        if parser:
+            for tag, attribute, target, source_text, start, end in parser.links:
+                urls.append({"raw": target, "source_text": source_text,
+                             "location": {"part": index, "field": f"html_{tag}_{attribute}",
+                                          "start": start, "end": end}})
     return {"source": source_name, "sha256": hashlib.sha256(raw).hexdigest(),
             "from": headers["from"], "reply_to": headers["reply_to"],
             "subject": headers["subject"], "body": "\n".join(b["text"] for b in bodies),

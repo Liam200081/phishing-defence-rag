@@ -36,7 +36,7 @@
           "value": "https://blog1seguimentmydomaine2bra.me/",
           "location": {
             "part": 0,
-            "field": "body",
+            "field": "html_a_href",
             "start": 276,
             "end": 315
           },
@@ -95,7 +95,7 @@
           "value": "https://blog1seguimentmydomaine2bra.me/",
           "location": {
             "part": 0,
-            "field": "body",
+            "field": "html_a_href",
             "start": 276,
             "end": 315
           },
@@ -500,10 +500,10 @@
         },
         {
           "kind": "mail_url",
-          "value": "https://docs.google.com/presentation/d/e/2PACX-1vRl-97bnpaZlGw_AWKTdLWlcCvkjfmb77IVlSWraqVxy7leEh8ZUiWPPMGl4V2d7V0bPAHFCf5JblC7/pub?start=false&amp;loop=false&amp;delayms=3000",
+          "value": "https://docs.google.com/presentation/d/e/2PACX-1vRl-97bnpaZlGw_AWKTdLWlcCvkjfmb77IVlSWraqVxy7leEh8ZUiWPPMGl4V2d7V0bPAHFCf5JblC7/pub?start=false&loop=false&delayms=3000",
           "location": {
             "part": 1,
-            "field": "body",
+            "field": "html_a_href",
             "start": 76,
             "end": 251
           },
@@ -557,10 +557,10 @@
         },
         {
           "kind": "mail_url",
-          "value": "https://docs.google.com/presentation/d/e/2PACX-1vRl-97bnpaZlGw_AWKTdLWlcCvkjfmb77IVlSWraqVxy7leEh8ZUiWPPMGl4V2d7V0bPAHFCf5JblC7/pub?start=false&amp;loop=false&amp;delayms=3000",
+          "value": "https://docs.google.com/presentation/d/e/2PACX-1vRl-97bnpaZlGw_AWKTdLWlcCvkjfmb77IVlSWraqVxy7leEh8ZUiWPPMGl4V2d7V0bPAHFCf5JblC7/pub?start=false&loop=false&delayms=3000",
           "location": {
             "part": 1,
-            "field": "body",
+            "field": "html_a_href",
             "start": 76,
             "end": 251
           },
@@ -1054,12 +1054,12 @@
         },
         {
           "kind": "mail_url",
-          "value": "http://home.cnet.com/i/ne/ds/dhed.gif",
+          "value": "http://www.search.com/redirect/",
           "location": {
             "part": 0,
             "field": "body",
-            "start": 320,
-            "end": 357
+            "start": 1106,
+            "end": 1137
           },
           "sample_sha256": "9710908a7a81ceb330f85f63ae9c09e5f2d36aa77676356ef94face3219cb81a"
         }
@@ -1112,12 +1112,12 @@
         },
         {
           "kind": "mail_url",
-          "value": "http://home.cnet.com/i/ne/ds/dhed.gif",
+          "value": "http://www.search.com/redirect/",
           "location": {
             "part": 0,
             "field": "body",
-            "start": 320,
-            "end": 357
+            "start": 1106,
+            "end": 1137
           },
           "sample_sha256": "9710908a7a81ceb330f85f63ae9c09e5f2d36aa77676356ef94face3219cb81a"
         }
@@ -1169,14 +1169,36 @@
         },
         {
           "kind": "mail_url",
-          "value": "http://www.cnet.com/i/sh/nl/442_shopperALERT.gif",
+          "value": "top",
           "location": {
             "part": 0,
-            "field": "body",
-            "start": 298,
-            "end": 346
+            "field": "html_a_href",
+            "start": 142,
+            "end": 145
           },
           "sample_sha256": "f25ca5bca1059a9e3ee8d321da3b67bc98000854e00a08dc7b502836a82bc0fa"
+        },
+        {
+          "kind": "knowledge_retrieval_requirement",
+          "query_id": "Q8",
+          "query": "What is spear phishing and how does it differ from regular phishing?",
+          "historical_fixture": "tests/fixtures/q8_historical.json",
+          "text_must_include": "This type is the most targeted type of phishing attack.",
+          "definition_offset_constraint": "beyond_character_300_in_historical_excerpt",
+          "required_source_fields": [
+            "text",
+            "document",
+            "document_sha256",
+            "page_start",
+            "page_end",
+            "chunk_id",
+            "score",
+            "index_version",
+            "data_version"
+          ],
+          "note": "Historical excerpt has unknown original PDF and page; actual retrieved source fields must be recorded, not invented.",
+          "historical_export_sha256": "8bb150d53c9b4523e4132c030e104b03958c5357d8120146a7d52f7636594722",
+          "historical_fixture_sha256": "5333b4c6dc1316a6e6a4d5171fc4854491693cd3f6a498311f09432e5f590a83"
         }
       ],
       "allowed_tools": [
@@ -1224,12 +1246,12 @@
         },
         {
           "kind": "mail_url",
-          "value": "http://www.cnet.com/i/sh/nl/442_shopperALERT.gif",
+          "value": "top",
           "location": {
             "part": 0,
-            "field": "body",
-            "start": 298,
-            "end": 346
+            "field": "html_a_href",
+            "start": 142,
+            "end": 145
           },
           "sample_sha256": "f25ca5bca1059a9e3ee8d321da3b67bc98000854e00a08dc7b502836a82bc0fa"
         }
@@ -1289,6 +1311,28 @@
             "end": 94
           },
           "sample_sha256": "bba5a387c1f994758e4b4bd647a39931502303b42229366151b7cb41d2496e32"
+        },
+        {
+          "kind": "knowledge_retrieval_requirement",
+          "query_id": "Q8",
+          "query": "What is spear phishing and how does it differ from regular phishing?",
+          "historical_fixture": "tests/fixtures/q8_historical.json",
+          "text_must_include": "This type is the most targeted type of phishing attack.",
+          "definition_offset_constraint": "beyond_character_300_in_historical_excerpt",
+          "required_source_fields": [
+            "text",
+            "document",
+            "document_sha256",
+            "page_start",
+            "page_end",
+            "chunk_id",
+            "score",
+            "index_version",
+            "data_version"
+          ],
+          "note": "Historical excerpt has unknown original PDF and page; actual retrieved source fields must be recorded, not invented.",
+          "historical_export_sha256": "8bb150d53c9b4523e4132c030e104b03958c5357d8120146a7d52f7636594722",
+          "historical_fixture_sha256": "5333b4c6dc1316a6e6a4d5171fc4854491693cd3f6a498311f09432e5f590a83"
         }
       ],
       "allowed_tools": [

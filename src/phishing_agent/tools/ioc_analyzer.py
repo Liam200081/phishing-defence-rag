@@ -14,10 +14,11 @@ def _normalize(raw):
     if not host:
         raise ValueError("no_host")
     host = host.rstrip(".").encode("idna").decode("ascii").lower()
+    url_host = f"[{host}]" if ":" in host else host
     port = parsed.port
     scheme = parsed.scheme.lower()
     if parsed.scheme:
-        netloc = host if port is None or (scheme, port) in (("http", 80), ("https", 443)) else f"{host}:{port}"
+        netloc = url_host if port is None or (scheme, port) in (("http", 80), ("https", 443)) else f"{url_host}:{port}"
         normalized = urlunsplit((scheme, netloc, parsed.path or "/", parsed.query, ""))
         kind = "url"
     else:
@@ -55,7 +56,10 @@ def analyze_iocs(items):
         key = (kind, normalized)
         if key not in grouped:
             grouped[key] = {"kind": kind, "normalized": normalized, "host": host,
-                            "observations": observations, "occurrences": []}
+                            "observations": [], "occurrences": []}
+        for observation in observations:
+            if observation not in grouped[key]["observations"]:
+                grouped[key]["observations"].append(observation)
         grouped[key]["occurrences"].append({"raw": raw, "location": item.get("location"),
                                              "input_index": index})
     return {"iocs": list(grouped.values()), "warnings": warnings,

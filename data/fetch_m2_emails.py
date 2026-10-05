@@ -2,12 +2,29 @@
 import hashlib
 import io
 import json
+import ssl
+import subprocess
 import tarfile
 from pathlib import Path
+from urllib.error import URLError
 from urllib.request import urlopen
 
 ROOT = Path(__file__).resolve().parents[1]
 MANIFEST = ROOT / "data" / "m2_manifest.json"
+
+
+def download(url, timeout):
+    try:
+        with urlopen(url, timeout=timeout) as response:
+            return response.read()
+    except URLError as exc:
+        if not isinstance(exc.reason, ssl.SSLCertVerificationError):
+            raise
+        # Some macOS Python installs lack the system CA bundle. curl uses the
+        # system trust store; its TLS verification remains enabled.
+        return subprocess.run(["curl", "--location", "--fail", "--silent", "--show-error",
+                               "--max-time", str(timeout), url], check=True,
+                              capture_output=True).stdout
 
 
 def main():
@@ -17,12 +34,10 @@ def main():
         source = manifest["sources"][sample["source_id"]]
         if source["kind"] == "github_raw":
             url = source["base_url"] + "/" + sample["upstream_path"]
-            with urlopen(url, timeout=30) as response:
-                content = response.read()
+            content = download(url, 30)
         else:
             if sample["source_id"] not in archives:
-                with urlopen(source["archive_url"], timeout=60) as response:
-                    archive = response.read()
+                archive = download(source["archive_url"], 60)
                 if hashlib.sha256(archive).hexdigest() != source["archive_sha256"]:
                     raise ValueError("archive hash mismatch")
                 archives[sample["source_id"]] = archive

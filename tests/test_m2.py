@@ -18,6 +18,19 @@ MANIFEST = json.loads((ROOT / "data/m2_manifest.json").read_text())
 CASES = json.loads((ROOT / "evaluation/cases/m2_cases.json").read_text())["cases"]
 
 
+def missing_samples():
+    return [sample["local_path"] for sample in MANIFEST["samples"]
+            if not (ROOT / sample["local_path"]).is_file()]
+
+
+def setUpModule():
+    missing = missing_samples()
+    if missing:
+        raise RuntimeError("M2 local email prerequisite missing: " + ", ".join(missing) +
+                           ". Run `python data/fetch_m2_emails.py` from this checkout, "
+                           "then rerun offline tests. Raw emails remain ignored by Git.")
+
+
 def shingles(text):
     words = re.findall(r"[a-z0-9]+", text.lower())
     return set(zip(*(words[i:] for i in range(5)))) if len(words) >= 5 else set()
@@ -52,6 +65,18 @@ class M2DataTests(unittest.TestCase):
             self.assertTrue(set(c["allowed_tools"]) <= {"retrieve_knowledge", "parse_email", "analyze_iocs"})
             self.assertIn("scripted", c["provenance_statement"])
         self.assertEqual(len({c["scenario"] for c in CASES}), 10)
+        q8 = [c for c in CASES if c["scenario"] == "q8_context_regression"]
+        self.assertEqual(len(q8), 2)
+        fixture = ROOT / "tests/fixtures/q8_historical.json"
+        definition = json.loads(fixture.read_text())["definition"]
+        for c in q8:
+            knowledge = [e for e in c["expected_evidence"] if e["kind"] == "knowledge_retrieval_requirement"]
+            self.assertEqual(len(knowledge), 1)
+            self.assertEqual(knowledge[0]["query_id"], "Q8")
+            self.assertEqual(knowledge[0]["text_must_include"], definition)
+            self.assertEqual(knowledge[0]["historical_fixture_sha256"], hashlib.sha256(fixture.read_bytes()).hexdigest())
+            self.assertTrue({"text", "document", "page_start", "chunk_id", "score", "index_version", "data_version"}
+                            <= set(knowledge[0]["required_source_fields"]))
         groups = {split: {s["source_group"] for s in MANIFEST["samples"] if s["split"] == split}
                   for split in ("development", "held_out")}
         self.assertFalse(groups["development"] & groups["held_out"])
@@ -108,6 +133,30 @@ class M2ToolTests(unittest.TestCase):
         match = next(i for i in result["iocs"] if i["normalized"] == "https://example.org/a")
         self.assertGreaterEqual(len(match["occurrences"]), 2)
         self.assertTrue(all(o["location"]["start"] is not None for o in match["occurrences"]))
+
+    def test_html_entity_url_has_one_ioc_and_exact_source_offset(self):
+        body = '<div>hello</div>\n<a href="https://Example.org/path?a=1&amp;b=2">open</a>'
+        parsed = parse_email(text="From: a@example.org\nSubject: HTML\nContent-Type: text/html\n\n" + body)
+        self.assertEqual(len(parsed["urls"]), 1)
+        url = parsed["urls"][0]
+        self.assertEqual(url["raw"], "https://Example.org/path?a=1&b=2")
+        self.assertEqual(body[url["location"]["start"]:url["location"]["end"]], url["source_text"])
+        self.assertEqual(url["source_text"], "https://Example.org/path?a=1&amp;b=2")
+        result = analyze_iocs(parsed["urls"])
+        self.assertEqual(len(result["iocs"]), 1)
+        self.assertEqual(len(result["iocs"][0]["occurrences"]), 1)
+
+    def test_duplicate_ioc_combines_observations_and_ipv6_brackets(self):
+        result = analyze_iocs([{"raw": "https://example.org/a", "location": {"start": 1}},
+                               {"raw": "https://user:pass@example.org/a", "location": {"start": 2}},
+                               {"raw": "https://[2001:db8::1]:443/a", "location": {"start": 3}}])
+        self.assertEqual(len(result["iocs"]), 2)
+        first, second = result["iocs"]
+        self.assertEqual(first["normalized"], "https://example.org/a")
+        self.assertEqual(len(first["occurrences"]), 2)
+        self.assertIn("userinfo_in_url", first["observations"])
+        self.assertEqual(second["normalized"], "https://[2001:db8::1]/a")
+        self.assertIn("ip_literal_host", second["observations"])
 
     def test_ioc_normalization_static_observations(self):
         result = analyze_iocs([{"raw": "hxxps://EXAMPLE[.]org:443/a#frag", "location": {"part": 1}},
