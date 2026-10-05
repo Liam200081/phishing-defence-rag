@@ -418,8 +418,7 @@ def score_result(result, case, review):
         raise ValueError("critical error needs reason")
     success = (result["status"] not in {"execution_error", "waiting_clarification"} and
                review["status_met"] and
-               all(c["met"] for c in conditions) and not critical_error and
-               all(c["supported"] for c in claims))
+               all(c["met"] for c in conditions) and not critical_error)
     failure = None
     if not success:
         failure = review.get("failure")

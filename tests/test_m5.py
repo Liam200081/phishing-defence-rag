@@ -139,6 +139,13 @@ class M5Tests(unittest.TestCase):
         with self.assertRaises(ValueError):
             score_result(bad_result, self.case, good)
         bad = review_for(result, self.case, supported=False)
+        bad["failure"] = None
+        self.assertTrue(score_result(result, self.case, bad)["success"])
+        self.assertEqual(score_result(result, self.case, bad)["supported"], 0)
+        bad["critical_error"] = True
+        bad["critical_error_reason"] = "Unsupported central conclusion"
+        bad["failure"] = {"type": "answer/grounding", "reason": "Unsupported central conclusion",
+                          "trace_refs": [0]}
         self.assertFalse(score_result(result, self.case, bad)["success"])
         bad["failure"] = {"type": "clarification", "reason": "unrelated", "trace_refs": [0]}
         with self.assertRaises(ValueError):
