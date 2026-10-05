@@ -17,7 +17,8 @@ from .trace import code_provenance
 MODES = {"B1": (False, False), "W0": (False, False), "A1": (True, True),
          "A1-no-planning": (False, True), "A1-no-reflection": (True, False)}
 FAILURE_TYPES = {"retrieval/context", "planning", "tool routing/execution", "fact/state",
-                 "clarification", "verification/reflection", "budget/termination", "answer/grounding"}
+                 "clarification", "verification/reflection", "budget/termination", "answer/grounding",
+                 "service/provider"}
 
 
 def digest(value):
@@ -98,6 +99,10 @@ class Meter:
                 row["error_type"] = type(exc).__name__
                 row["status_code"] = getattr(exc, "status_code", None)
                 if row["status_code"] != 429 or attempt == self.retry_429:
+                    raise
+                body = str(getattr(exc, "body", ""))
+                if "tokens per day" in body.lower() or "TPD" in body:
+                    row["rate_limit_scope"] = "daily"
                     raise
                 headers = getattr(getattr(exc, "response", None), "headers", {}) or {}
                 try:
@@ -246,6 +251,9 @@ def execute_case(case, mode, config, retriever, completion, root, sqlite_path, *
                                    sum(n - 1 for n in Counter(c["key"] for c in meter.calls
                                        if c["kind"] == "llm").values() if n > 1))
     findings = [f for event in trace for f in event.get("verification", [])]
+    if any(c.get("status") == "error" for c in meter.calls):
+        trace.append({"node": "service_calls", "status": status,
+                      "calls": deepcopy(meter.calls)})
     return {"case_id": case["case_id"], "mode": mode, "split": case["split"],
             "scenario": case.get("scenario", "knowledge_regression"),
             "status": status, "answer": answer, "evidence": evidence, "trace": trace,
@@ -263,7 +271,8 @@ def execute_case(case, mode, config, retriever, completion, root, sqlite_path, *
 
 def run_experiment(cases, modes, config, retriever, completion, root, output_dir, *,
                    split, repeat=1, provenance=None, run_id=None,
-                   min_interval_seconds=0, retry_429=0, preflight=None):
+                   min_interval_seconds=0, retry_429=0, preflight=None,
+                   fail_on_service_error=True):
     validate_config(config)
     if not cases or any(c["split"] != split for c in cases) or len({c["case_id"] for c in cases}) != len(cases):
         raise ValueError("cases must have unique IDs and one split")
@@ -288,7 +297,8 @@ def run_experiment(cases, modes, config, retriever, completion, root, output_dir
                     "code": provenance or code_provenance(root),
                     "preflight": preflight,
                     "runtime": {"min_interval_seconds": min_interval_seconds,
-                                "retry_429": retry_429, "schedule": "case_interleaved_rotating"},
+                                "retry_429": retry_429, "schedule": "case_interleaved_rotating",
+                                "fail_on_service_error": fail_on_service_error},
                     "conditions": {m: {"planning": MODES[m][0], "reflection": MODES[m][1],
                                        "information": "question_only" if m == "B1" else "question_and_email"}
                                    for m in modes}, "repeat": repeat,
@@ -304,6 +314,9 @@ def run_experiment(cases, modes, config, retriever, completion, root, output_dir
                     result["case_sha256"] = digest(case)
                     result["execution_order"] = len(manifest["results"])
                     manifest["results"].append(result)
+                    if fail_on_service_error and any(c.get("kind") == "llm" and c.get("status") == "error"
+                                                     for c in result["calls"]):
+                        raise RuntimeError("model service error; partial run preserved, formal comparison invalid")
         path = folder / "run.json"
         path.write_text(json.dumps(manifest, ensure_ascii=False, indent=2, default=str) + "\n", encoding="utf-8")
         return manifest, path
@@ -334,6 +347,9 @@ def validate_current_version(run, root):
 
 
 def _failure_trace_relevant(failure_type, events):
+    if failure_type == "service/provider":
+        return any(any(c.get("kind") == "llm" and c.get("status") == "error"
+                       for c in e.get("calls", [])) for e in events)
     if failure_type == "retrieval/context":
         return any(e.get("context") or e.get("retrieved") or
                    any(h.get("tool") == "retrieve_knowledge" for h in e.get("tool_history", []))

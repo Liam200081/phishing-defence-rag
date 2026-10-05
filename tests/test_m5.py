@@ -190,6 +190,30 @@ class M5Tests(unittest.TestCase):
         self.assertEqual(meter.summary()["usage_missing_calls"], 1)
         self.assertEqual(meter.summary()["usage"]["total_tokens"], 15)
 
+    def test_daily_limit_stops_without_wait_and_keeps_partial_run(self):
+        class DailyLimit(Exception):
+            status_code = 429
+            body = {"error": {"message": "tokens per day limit reached"}}
+        def unavailable(**kwargs):
+            raise DailyLimit()
+        with patch("phishing_agent.evaluation.time.sleep") as sleeping:
+            with self.assertRaisesRegex(RuntimeError, "service error"):
+                run_experiment([self.case], ["B1", "W0"], self.config,
+                               self.retriever, unavailable, self.root, self.root / "out",
+                               split="development", provenance={"test": True}, retry_429=2)
+        sleeping.assert_not_called()
+        partial = next((self.root / "out").glob("*/partial.json"))
+        saved = json.loads(partial.read_text())
+        self.assertEqual(len(saved["results"]), 1)
+        self.assertEqual(saved["results"][0]["calls"][-1]["rate_limit_scope"], "daily")
+        self.assertEqual(saved["results"][0]["diagnostics"]["usage_missing_calls"], 1)
+        self.assertEqual(saved["results"][0]["trace"][-1]["node"], "service_calls")
+        review = review_for(saved["results"][0], self.case, met=False)
+        review["claims"] = []
+        review["failure"] = {"type": "service/provider", "reason": "HTTP 429 daily limit",
+                             "trace_refs": [len(saved["results"][0]["trace"]) - 1]}
+        self.assertFalse(score_result(saved["results"][0], self.case, review)["success"])
+
     def test_split_guard_and_knowledge_regression(self):
         dev = load_cases(ROOT / "evaluation/cases/m2_cases.json", "development")
         hold = load_cases(ROOT / "evaluation/cases/m2_cases.json", "held_out")

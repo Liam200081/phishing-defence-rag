@@ -29,6 +29,8 @@ def main(argv=None):
     run.add_argument("--retry-429", type=int, default=0,
                      help="Bounded retries for provider rate limits; each attempt is retained")
     run.add_argument("--allow-dirty", action="store_true", help="Development smoke runs only")
+    run.add_argument("--allow-service-errors", action="store_true",
+                     help="Diagnostic runs only; formal comparison stops on the first model service error")
     score = sub.add_parser("score")
     score.add_argument("run_json")
     score.add_argument("--reviews", required=True)
@@ -56,10 +58,13 @@ def main(argv=None):
         if provenance["git_dirty"] is not False and not args.allow_dirty:
             raise ValueError("formal run requires a clean Git worktree")
         generation = config["generation"]
-        probe = completion(model=config["model"],
-                           messages=[{"role": "user", "content": "Reply READY."}],
-                           max_tokens=64, temperature=generation["temperature"],
-                           top_p=generation["top_p"])
+        try:
+            probe = completion(model=config["model"],
+                               messages=[{"role": "user", "content": "Reply READY."}],
+                               max_tokens=64, temperature=generation["temperature"],
+                               top_p=generation["top_p"])
+        except Exception as exc:
+            raise ValueError(f"model preflight failed: {type(exc).__name__}, HTTP {getattr(exc, 'status_code', None)}") from None
         preflight = {"status": "ok", "model": config["model"], "usage": _usage(probe)}
         chunks, _ = ingest_pdfs(args.pdf_dir, config)
         retriever = ChromaRetriever(chunks, config)
@@ -68,7 +73,8 @@ def main(argv=None):
                                           args.root, args.output_dir, split=split,
                                           repeat=args.repeat, provenance=provenance,
                                           min_interval_seconds=args.min_interval_seconds,
-                                          retry_429=args.retry_429, preflight=preflight)
+                                          retry_429=args.retry_429, preflight=preflight,
+                                          fail_on_service_error=not args.allow_service_errors)
         finally:
             retriever.close()
         print(json.dumps({"run_id": result["run_id"], "path": str(path),
