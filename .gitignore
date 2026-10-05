@@ -8,6 +8,7 @@ __pycache__/
 
 # Local RAG knowledge base
 data/*.pdf
+data/emails/
 
 # B1 local artifacts and environments
 .venv/

@@ -1,0 +1,171 @@
+{
+  "schema_version": "m2-v1",
+  "authenticity_note": "Raw email bytes are public corpus samples; user actions, replies, failures and injected overlays are scripted. Collection labels are not adjudicated phishing verdicts.",
+  "sources": {
+    "phishing_pot": {
+      "kind": "github_raw",
+      "repository_url": "https://github.com/rf-peixoto/phishing_pot",
+      "commit": "49f63777126b0bdb9eb1f6e770a5c3f9df2b0306",
+      "base_url": "https://raw.githubusercontent.com/rf-peixoto/phishing_pot/49f63777126b0bdb9eb1f6e770a5c3f9df2b0306",
+      "license": "CC BY-NC 4.0 repository license; sample-specific third-party rights not independently verified",
+      "use_conditions": "Research/noncommercial, attribution; raw samples not redistributed here; local download only",
+      "label_scope": "Repository describes honeypot phishing samples; individual sample labels unverified"
+    },
+    "spamassassin_hard_ham": {
+      "kind": "tar_bz2",
+      "corpus_url": "https://spamassassin.apache.org/old/publiccorpus/readme.html",
+      "archive_url": "https://spamassassin.apache.org/old/publiccorpus/20030228_hard_ham.tar.bz2",
+      "archive_sha256": "ce2ce67880643dbde65ea7f85bffbfe4417349c4bd80b6b0de56262ae6b0a9c9",
+      "version": "20030228_hard_ham",
+      "license": "Message text copyright remains with original senders; redistribution permission not established",
+      "use_conditions": "Local research/testing only; do not send into live mail systems; raw samples not redistributed here",
+      "label_scope": "Corpus hard_ham label is non-spam, not independently verified safe"
+    }
+  },
+  "samples": [
+    {
+      "sample_id": "PP-1",
+      "source_id": "phishing_pot",
+      "upstream_path": "email/sample-1.eml",
+      "local_path": "data/emails/phishing_pot/sample-1.eml",
+      "sha256": "35ef116a75e5e46e6859b49b60a23b4ddfe5f91d1368e0fc67a16df698cb96e0",
+      "size_bytes": 15967,
+      "source_label": "phishing_repository_unverified",
+      "subject_observed": "CLIENTE PRIME - BRADESCO LIVELO: Seu cartão tem 92.990 pontos LIVELO expirando hoje!",
+      "split": "development",
+      "source_group": "sample-1"
+    },
+    {
+      "sample_id": "PP-2",
+      "source_id": "phishing_pot",
+      "upstream_path": "email/sample-2.eml",
+      "local_path": "data/emails/phishing_pot/sample-2.eml",
+      "sha256": "cd7cf5bd51735184850f8ff10966ec15a93f53f4d976f9860a359528359e62aa",
+      "size_bytes": 30291,
+      "source_label": "phishing_repository_unverified",
+      "subject_observed": "Confirm Your Mashreq Email Now For Your Security (MOVE TO INBOX)",
+      "split": "development",
+      "source_group": "sample-2"
+    },
+    {
+      "sample_id": "PP-5",
+      "source_id": "phishing_pot",
+      "upstream_path": "email/sample-5.eml",
+      "local_path": "data/emails/phishing_pot/sample-5.eml",
+      "sha256": "963ea457801adfc6b2e329dd6796df65e17ddf92b5d8a4dc56395ca3c4de26fc",
+      "size_bytes": 33027,
+      "source_label": "phishing_repository_unverified",
+      "subject_observed": "Fw: Your Bank Account has been blocked due to unusual activities CASE# T53-H32-C10-C83",
+      "split": "development",
+      "source_group": "sample-5"
+    },
+    {
+      "sample_id": "PP-300",
+      "source_id": "phishing_pot",
+      "upstream_path": "email/sample-300.eml",
+      "local_path": "data/emails/phishing_pot/sample-300.eml",
+      "sha256": "a104e689cb8f231a7e036228a2d73ec862e76b7851ab8b01ebb195829991ae8a",
+      "size_bytes": 10978,
+      "source_label": "phishing_repository_unverified",
+      "subject_observed": "Répondez au court sondage et recevez votre cadeau.",
+      "split": "held_out",
+      "source_group": "sample-300"
+    },
+    {
+      "sample_id": "PP-500",
+      "source_id": "phishing_pot",
+      "upstream_path": "email/sample-500.eml",
+      "local_path": "data/emails/phishing_pot/sample-500.eml",
+      "sha256": "e00ba583319247bedfef7a79957f6d1b273149f288a96ac8d07bdd3c5f0dd8a1",
+      "size_bytes": 15881,
+      "source_label": "phishing_repository_unverified",
+      "subject_observed": "Confirm the transaction",
+      "split": "held_out",
+      "source_group": "sample-500"
+    },
+    {
+      "sample_id": "PP-600",
+      "source_id": "phishing_pot",
+      "upstream_path": "email/sample-600.eml",
+      "local_path": "data/emails/phishing_pot/sample-600.eml",
+      "sha256": "8b014e7642ea992df21591e24ad5204d391fed703a5d1012e2e529ce9158acfa",
+      "size_bytes": 22167,
+      "source_label": "phishing_repository_unverified",
+      "subject_observed": "Find_out_how_to_get_your_Reward!",
+      "split": "held_out",
+      "source_group": "sample-600"
+    },
+    {
+      "sample_id": "SA-00001",
+      "source_id": "spamassassin_hard_ham",
+      "upstream_path": "hard_ham/00001.7c7d6921e671bbe18ebb5f893cd9bb35",
+      "local_path": "data/emails/spamassassin/00001.7c7d6921e671bbe18ebb5f893cd9bb35.eml",
+      "sha256": "96ff764985eaa3f6ae17132f250b5b6883efda116d2e04c0c28ae723a590f65d",
+      "size_bytes": 8318,
+      "source_label": "hard_ham_corpus_label",
+      "subject_observed": "Personal Finance: Resolutions You Can Keep",
+      "split": "development",
+      "source_group": "00001.7c7d6921e671bbe18ebb5f893cd9bb35"
+    },
+    {
+      "sample_id": "SA-00003",
+      "source_id": "spamassassin_hard_ham",
+      "upstream_path": "hard_ham/00003.268fd170a3fc73bee2739d8204856a53",
+      "local_path": "data/emails/spamassassin/00003.268fd170a3fc73bee2739d8204856a53.eml",
+      "sha256": "fe9884d75522f77931f9165ffbb2bf33375bf011b227c54b7af64814e6294219",
+      "size_bytes": 1003,
+      "source_label": "hard_ham_corpus_label",
+      "subject_observed": "Automated 30 day renewal reminder 2002-05-27",
+      "split": "held_out",
+      "source_group": "00003.268fd170a3fc73bee2739d8204856a53"
+    },
+    {
+      "sample_id": "SA-00007",
+      "source_id": "spamassassin_hard_ham",
+      "upstream_path": "hard_ham/00007.d24e99a602ee7fb442714c0d448cd08e",
+      "local_path": "data/emails/spamassassin/00007.d24e99a602ee7fb442714c0d448cd08e.eml",
+      "sha256": "62390b6ee1ae9b02145e7937a5518dcf9447a15f3ef14de67d660ec827549b55",
+      "size_bytes": 10849,
+      "source_label": "hard_ham_corpus_label",
+      "subject_observed": "F2M - Ihre kostenlose Faxnummer - Newsletter",
+      "split": "development",
+      "source_group": "00007.d24e99a602ee7fb442714c0d448cd08e"
+    },
+    {
+      "sample_id": "SA-00011",
+      "source_id": "spamassassin_hard_ham",
+      "upstream_path": "hard_ham/00011.acdfa5be40e7b6c3ad3df28c63670c7c",
+      "local_path": "data/emails/spamassassin/00011.acdfa5be40e7b6c3ad3df28c63670c7c.eml",
+      "sha256": "9710908a7a81ceb330f85f63ae9c09e5f2d36aa77676356ef94face3219cb81a",
+      "size_bytes": 33143,
+      "source_label": "hard_ham_corpus_label",
+      "subject_observed": "CNET NEWS.COM: Cable companies cracking down on Wi-Fi",
+      "split": "held_out",
+      "source_group": "00011.acdfa5be40e7b6c3ad3df28c63670c7c"
+    },
+    {
+      "sample_id": "SA-00012",
+      "source_id": "spamassassin_hard_ham",
+      "upstream_path": "hard_ham/00012.58a866f18474d94989984958e1789df4",
+      "local_path": "data/emails/spamassassin/00012.58a866f18474d94989984958e1789df4.eml",
+      "sha256": "f25ca5bca1059a9e3ee8d321da3b67bc98000854e00a08dc7b502836a82bc0fa",
+      "size_bytes": 20230,
+      "source_label": "hard_ham_corpus_label",
+      "subject_observed": "Save an extra $50 on the iPaq 3835 PDA (CNET SHOPPER)",
+      "split": "held_out",
+      "source_group": "00012.58a866f18474d94989984958e1789df4"
+    },
+    {
+      "sample_id": "SA-00151",
+      "source_id": "spamassassin_hard_ham",
+      "upstream_path": "hard_ham/00151.b352916ecff2b0ba1140d6898d789235",
+      "local_path": "data/emails/spamassassin/00151.b352916ecff2b0ba1140d6898d789235.eml",
+      "sha256": "bba5a387c1f994758e4b4bd647a39931502303b42229366151b7cb41d2496e32",
+      "size_bytes": 31102,
+      "source_label": "hard_ham_corpus_label",
+      "subject_observed": "Wrox Press Developer's Journal",
+      "split": "development",
+      "source_group": "00151.b352916ecff2b0ba1140d6898d789235"
+    }
+  ]
+}
