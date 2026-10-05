@@ -1,125 +1,83 @@
-# Phishing-Defence RAG — B1 baseline
+# Phishing-Defence RAG
 
-This repository implements **ADR-002 M1 only**: a single-round knowledge RAG baseline with explicit sources, complete budgeted context, response termination records and reproducible offline tests. The approved design is [ADR-002](docs/ADR-002.md). No Agent workflow, planning, verification loop, memory, email parsing or IOC analysis is implemented.
+本项目用可追溯的知识检索和邮件静态分析，辅助回答网络钓鱼防护问题。当前核心实现覆盖 M1–M5：保留 B1 单轮 RAG 基线，并实现带状态、澄清、规划、工具路由、验证和有限恢复的 **Single-Agent LangGraph** 工作流。回答应区分邮件中可观察的事实、用户报告的操作和知识来源；静态 IOC 观察不构成恶意判定，也不能证明账户已被入侵。
 
-## B0 is frozen; B1 is separate
+## 架构
 
-The original `phishing_defence_rag.ipynb`, `evaluation_results.xlsx`, `ablation_v1_comparison.xlsx` and `error_analysis_details.xlsx` remain byte-for-byte unchanged. Do not run the old notebook in the repository root: its historical code writes fixed output filenames. Use the B1 notebook for new experiments.
+`src/phishing_agent/graph.py` 构建一个以 SQLite checkpoint 保存状态的 LangGraph。主路径为 `intake → plan → act → assess → answer → verify → finish`；需要用户事实时，`assess` 进入 `clarify` 并通过 interrupt 暂停，随后可用 `resume` 继续。验证结果可以在预算内引导回答修复、重建上下文、补充检索、工具重试或重新规划；达到限制时返回受限结论。这里的 Planning 是经过校验的确定性任务计划，默认不增加规划模型调用。
 
-`experiments/historical/` contains exact snapshots of all seven original repository files, their SHA-256 manifest, and explicit unknown/unavailable provenance fields. The snapshot commit identifies the saved artifacts, **not** their historical execution version. Notebook source parameters cannot establish which configuration produced an old spreadsheet.
+三个只读工具由 `src/phishing_agent/tools/` 提供：
 
-Historical B0 cleaning-ablation values remain:
+| 工具 | 作用 |
+|---|---|
+| `parse_email` | 解析内联邮件或本地 `.eml` 的 RFC 822/MIME 内容，提取头字段、正文、URL、附件元数据和解析警告；不抓取链接或执行附件。 |
+| `analyze_iocs` | 对邮件 URL/域名做离线归一化和结构性观察，保留来源位置；输出不是信誉查询或恶意性裁决。 |
+| `retrieve_knowledge` | 使用 M1 的 PDF/Chroma 检索器返回带文档、页码、chunk 和索引来源信息的知识证据。 |
 
-| Legacy cosine diagnostic | Baseline mean | V1 cleaned mean | Delta |
-|---|---:|---:|---:|
-| Context Relevance | 0.5424 | 0.5541 | +0.0118 |
-| Answer Relevance | 0.5286 | 0.3570 | -0.1716 |
-| Faithfulness proxy | 0.5461 | 0.3691 | -0.1770 |
+`src/phishing_agent/state.py` 记录请求、事实修订、工具历史、证据、计划、澄清、回答、验证结果和预算。用户更正事实后，相关计划任务及其下游结果会失效；可复用的工具结果留在缓存中。邮件场景先解析邮件，仅在提取到 URL 时分析 IOC，并检索相关防护知识；知识问答直接检索。需要判断用户后续操作或账户影响时，工作流可澄清是否点击链接及是否提交凭据。工具执行、澄清和恢复均受 `src/phishing_agent/planning.py` 中的预算约束。
 
-These are preserved historical diagnostics, **not** factual accuracy or hallucination rates. They do not establish any B1 improvement. V1 in that spreadsheet denotes historical cleaning, not B1.
+`src/phishing_agent/verification.py` 检查回答状态、证据引用和部分不受支持或过度确定的说法，生成结构化 finding 与恢复动作。Reflection 使用这些 finding 驱动有限次数的修复；验证通过或预算耗尽后结束。验证规则不能替代人工的逐断言证据复核。
 
-## Run offline tests (no dependencies or API key required)
+## B1 / W0 / A1 评测框架
 
-From the repository root, Python 3.10+:
+`src/phishing_agent/evaluation.py` 和 `src/phishing_agent/eval_cli.py` 支持固定 Case、运行记录、人工复核评分及失败分析：
 
-```bash
-PYTHONPATH=src python3 -m unittest discover -s tests -v
-```
+| 模式 | 输入与流程 |
+|---|---|
+| `B1` | 单轮知识 RAG 基线；邮件 Case 只给问题，不给邮件。 |
+| `W0` | 邮件和问题进入同一工作流，使用固定工具路径与固定知识查询，不启用 Planning/Reflection 开关。 |
+| `A1` | 邮件和问题进入 Single-Agent 工作流，按已确认事实调整计划/查询，并启用验证与有限恢复。 |
 
-Tests preserve the exact ten original questions and use fixed Mock responses. The Q8 regression uses the actual 500-character excerpt from `error_analysis_details.xlsx`, cell E9. Its definition begins after character 300. Its original PDF/page are unknown; test source mappings are explicitly synthetic. Passing these tests establishes software behavior, not model quality or original-corpus retrieval performance.
+还提供 `A1-no-planning`、`A1-no-reflection` 两个消融模式。事件 Case 分为 `development` 和 `held_out`；知识回归使用 `evaluation/queries.json`。框架保存配置、代码和知识快照指纹、逐步 trace、模型调用及 usage，并通过独立复核文件计算 Case Success、Evidence Support 和 Cost per Successful Case；缺失 usage 不按零成本处理。正式评测要求 clean Git 工作区；模型服务预检失败会阻止批次启动，运行中遇到服务错误则停止并保存部分记录。
 
-## Install and run B1 with local PDFs
+**当前状态：**M1–M5 核心开发完成，当前已报告 **94 tests passed**。`evaluation/M5-results.md` 记录的是部分 development 运行和少量诊断性配对；外部模型 API 的配额/服务限制使完整 `held_out` 对照及重复运行尚未完成。因此目前没有可发布的完整 holdout KPI，也不能从现有样本推出 A1 相对 B1/W0 的总体效果。具体评测口径见 `evaluation/M5.md`。Multi-Agent 仅列为 Future Work，当前未实现。
+
+## 快速启动
+
+从仓库根目录运行，需要 Python 3.10+。运行时安装使用 `requirements.txt`（对应 `.[runtime]`）；Groq 调用需要在 `.env` 中设置 `GROQ_API_KEY`。PDF 语料放在 `data/`，邮件评测 Case 与本地邮件样本位于 `evaluation/cases/` 和 `data/emails/`。
 
 ```bash
 python3 -m venv .venv
 source .venv/bin/activate
 python -m pip install -r requirements.txt
 cp .env.example .env
+# 编辑 .env，设置 GROQ_API_KEY
 ```
 
-Set `GROQ_API_KEY` in `.env`, or export it in the shell. Place source PDFs in `data/`. The five historical sources were:
-
-- Anti-Phishing Training Program Support — CISA
-- Avoiding Social Engineering and Phishing Attacks — CISA
-- Counter-Phishing Guidance for Non-Federal Organizations — CISA
-- A Review of Phishing Attacks and Countermeasures for Internet of Things-Based Environments
-- Phishing-Resistant Multi-Factor Authentication (MFA) Success Story: USDA FIDO Implementation — CISA
-
-The originals and their historical hashes are unavailable in this checkout; third-party PDFs are not redistributed. B1 records the hashes of the files actually supplied. Do not represent substitute PDFs as the original B0 dataset.
+运行 B1 基线（结果保存到 `experiments/b1/`）：
 
 ```bash
 phishing-rag --config config.json --queries evaluation/queries.json --pdf-dir data
-# Or: python -m phishing_agent.cli --config config.json
-# Read and validate a saved result without model calls:
-phishing-rag --read-run experiments/b1/B1-<run-id>/run.json
 ```
 
-CLI exit codes: `0` all responses completed and no evaluation errors; `2` incomplete response or evaluation error; `1` setup/read failure. A completed API response is not proof of factual correctness. Retrieval failures, no evidence and insufficient context budget produce explicit per-query failures; they are not silently turned into normal answers. API errors are saved without secret-bearing exception messages. There are no hidden SDK retries or repair calls.
-
-For the presentation notebook:
+运行 M5 development 评测需要可用的外部模型额度；正式命令与复核格式见 `evaluation/M5.md`。例如运行三种核心模式：
 
 ```bash
-python -m pip install -e '.[notebook]'
-jupyter lab notebooks/B1_baseline.ipynb
+python -m phishing_agent.eval_cli run --suite event --split development --modes B1 W0 A1 --config evaluation/m5_config.json --pdf-dir data
 ```
 
-Select the environment containing the installed package. Run All calls `phishing_agent.pipeline.run_b1`, exactly as the CLI does. The notebook contains no duplicate RAG implementation or dependency-install cells.
-
-Optional dependency integration checks (offline, after runtime installation):
+本地测试不需要模型 API：
 
 ```bash
-python tests/smoke_runtime.py -v
-python -m pip check
+python -m unittest discover -s tests -v
 ```
 
-These checks use actual PyMuPDF and Chroma on a generated synthetic PDF, fixed embedding vectors, and the actual Groq SDK with a Mock HTTP transport. They do not contact Groq or measure model quality.
+上述 **94 tests passed** 是目前项目已报告的测试状态，并非模型质量或完整 holdout 结果。
 
-## Configuration and intentional B1 behavior changes
+## 项目结构
 
-All controls are in `config.json`, with a small validating loader. No configuration framework is required.
-
-| Control | Default / meaning |
+| 路径 | 内容 |
 |---|---|
-| Model | `openai/gpt-oss-20b` via Groq, as in the old source |
-| Embedding | Explicit `sentence-transformers/all-MiniLM-L6-v2` for both indexing and querying |
-| Embedding revision | `main`, resolved to an immutable Hugging Face commit and saved with each index/run; set that saved commit in config to repeat |
-| Chunking | 200 words, 30 overlap, >50 characters; historical window/filter retained |
-| Cleaning | Off; set `cleaning` to true in a copied config to use the original cleaning rules |
-| Retrieval | Top K 3; explicit cosine distance, lower is better |
-| Context | 12,000 Unicode characters including source labels and separators |
-| Generation | temperature 0.3, top_p 1, max_tokens 800, timeout 60 seconds |
-| Prompt | `b1-v1`; deterministic explanation/comparison/guidance rules |
-| Evaluation | `b1-context-v1`; optional legacy cosine diagnostics |
+| `src/phishing_agent/graph.py`、`state.py`、`planning.py`、`verification.py` | Single-Agent 工作流、状态、计划及验证。 |
+| `src/phishing_agent/tools/`、`rag/` | 邮件/IOC/知识工具与 PDF 检索。 |
+| `src/phishing_agent/pipeline.py`、`cli.py` | B1 单轮基线和命令行入口。 |
+| `src/phishing_agent/evaluation.py`、`eval_cli.py` | M5 运行、评分和分析。 |
+| `config.json`、`evaluation/m5_config.json` | B1 与 M5 配置。 |
+| `evaluation/cases/`、`evaluation/M5.md`、`evaluation/M5-results.md` | 固定 Case、评测协议和结果状态。 |
+| `tests/` | M1–M5 自动化测试。 |
+| `docs/ADR-002.md`、`docs/M1-acceptance.md`、`experiments/historical/` | 设计与历史基线记录。 |
 
-The embedding model loaded in B0 was not explicitly connected to Chroma. B1 makes that connection explicit and fixes the index distance to cosine. This can change rankings; it is not a quality claim. Chroma uses an isolated ephemeral collection per build. Index identity hashes the actual chunks, embedding revision and distance setting; it does not depend on the temporary collection name.
+## Future Work
 
-Word windows can span pages, and each chunk carries document name/hash, physical 1-based page range, word offsets and stable chunk ID. B1 inserts page boundaries explicitly to avoid concatenating the last word of one page with the first of the next. Cleaning retains the historical regex function but applies it per page so provenance survives. These documented boundary changes mean B1 is not a bitwise replay of B0 preprocessing.
-
-The Context Builder includes **all retrieved chunks in full**. It does not use per-chunk `[:300]`, silently skip lower-ranked evidence, or partially slice a chunk. When the whole selection exceeds the configured budget, it records the required size and does not request an answer. Adjust the budget or Top K explicitly and create a new run. The character budget controls reference evidence, not the model's full token window; query/prompt/output tokens are additional. Provider context-limit errors remain visible as request errors. M1 has no automatic recovery.
-
-`max_tokens` increases from the historical source's 300 to 800 as an initial development setting, not a measured optimum. Q8 is handled as a comparison. Definitions receive explanations, and defensive questions receive relevant steps without an arbitrary count of three.
-
-## Trace and evaluation contract
-
-New results are exclusively created under `experiments/b1/B1-<unique-id>/run.json`; existing run directories cannot be overwritten. Each record contains:
-
-- run ID/time, baseline and execution mode;
-- Git commit/dirty status, source-file hashes, Python and relevant package versions;
-- full configuration, requested/returned model, embedding model and resolved revision, prompt version and exact messages;
-- actual PDF hashes, dataset and index identity;
-- full query IDs/text, ranked retrieval hits and distance meaning;
-- actual context with source labels, evidence offsets and complete chunk text;
-- answer, request/return status, finish reason, usage when provided, empty/truncated flags and errors;
-- per-query evaluation, context hash, evidence IDs and aggregate completion/error counts.
-
-Readback checks query alignment, context/message identity, evidence/source mapping, evaluation context hashes, response completion and summary counts. Git hashes plus dirty source hashes distinguish uncommitted implementations; untracked source files are included. API delivery on request errors is not confirmed; saved messages record the attempted request.
-
-Evaluation only accesses the actual generation context. CR, AR and Faithfulness proxy remain **legacy diagnostic metrics**. Their historical window sizes (500 characters per evidence/answer, 1,000 joined context characters) are retained within that diagnostic calculation, and the exact diagnostic inputs are saved. Those windows do not truncate model context. Because B0 scored text the generator did not see, old and new values are not directly comparable under an identical evidence scope.
-
-Empty, length-terminated, filtered, unknown-termination or failed responses are not scored as normal completed answers. Human claim-level grounding is explicitly `not_assessed` with a null score; cosine similarity does not supply a factual-support KPI. M1 does not add an LLM judge or implement the later M5 evaluation program.
-
-## Scope and limitations
-
-The original ten questions remain the B1 regression set. Historical failures and provenance gaps remain visible. No real Groq experiment or new effectiveness comparison was run for this implementation. Real source-corpus evaluation requires the local PDFs and a key. M2–M6 remain outside this change.
-
-See [M1 acceptance record](docs/M1-acceptance.md) for the exact changes, checks and final status.
+- 在外部 API 额度与服务条件允许时，完成冻结条件下的完整 holdout、重复运行与人工复核。
+- 探索 Multi-Agent 架构；仓库当前只有 Single-Agent 工作流。
