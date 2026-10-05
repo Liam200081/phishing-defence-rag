@@ -12,6 +12,14 @@ class WorkflowState(TypedDict, total=False):
     clarification: dict[str, Any]
     status: str
     answer: dict[str, Any]
+    plan: list[dict[str, Any]]
+    verification: list[dict[str, Any]]
+    budget: dict[str, int]
+    recovery: str
+    context: str
+    plan_revision: int
+    invalidated_tasks: list[dict[str, Any]]
+    cached: dict[str, Any]
 
 
 def current_facts(records):
