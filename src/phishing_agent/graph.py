@@ -394,8 +394,13 @@ class A1Workflow:
                 request.get("question") == old_request.get("question") and
                 request.get("email_path") is None and old_request.get("email_path") is None and
                 request.get("email_text") == old_request.get("email_text")):
-            cache = {"tool_history": previous.get("tool_history", []),
-                     "evidence": previous.get("evidence", [])}
+            old_facts = current_facts(previous.get("facts", []))
+            supplied = request.get("facts", {})
+            corrected = isinstance(supplied, dict) and any(name in old_facts and old_facts[name] != value
+                            for name, value in supplied.items())
+            usable = {"parse_email", "analyze_iocs"} if corrected and request.get("kind") == "email" else None
+            cache = {"tool_history": [h for h in previous.get("tool_history", []) if usable is None or h["tool"] in usable],
+                     "evidence": [e for e in previous.get("evidence", []) if usable is None or e["tool"] in usable]}
         result = self.graph.invoke({"case_id": case_id, "run_id": run_id or uuid.uuid4().hex,
                                     "request": request, "cached": cache}, cfg)
         return result

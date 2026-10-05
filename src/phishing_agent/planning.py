@@ -1,5 +1,6 @@
 """Small, validated plans for the three existing read-only tools."""
 import json
+from .state import current_facts
 
 LIMITS = {"tasks": 4, "tools": 6, "llm": 8, "retrieval_extra": 1,
           "replans": 1, "repairs": 1, "clarifications": 2, "retries": 1}
@@ -24,8 +25,17 @@ def default_plan(state):
         add("parse_email", "Observe the submitted email", params)
         # IOC work is selected after parsing, only if URLs exist.
         add("analyze_iocs", "Inspect extracted indicators", {"from_task": "T1"}, ("T1",))
-        query = request["question"] + " phishing email indicators and response after opening clicking a link or entering credentials"
-        add("retrieve_knowledge", "Find applicable guidance", {"query": query}, ("T1",))
+        facts = current_facts(state.get("facts", []))
+        if facts.get("credential_submitted") is True:
+            focus = "response after credential entry"
+        elif facts.get("clicked_link") is True:
+            focus = "response after clicking a link without confirmed credential entry"
+        elif facts.get("clicked_link") is False:
+            focus = "response after only opening an email without clicking"
+        else:
+            focus = "phishing email indicators and possible response"
+        query = request["question"] + " " + focus
+        add("retrieve_knowledge", "Find " + focus, {"query": query}, ("T1",))
     else:
         add("retrieve_knowledge", "Find evidence for the question", {"query": request["question"]})
     return tasks

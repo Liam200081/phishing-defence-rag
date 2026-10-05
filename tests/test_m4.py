@@ -97,8 +97,9 @@ class M4Tests(unittest.TestCase):
         self.assertTrue(first["answer"])
         self.assertTrue(all(t["status"] == "invalidated" for t in second["invalidated_tasks"]))
         self.assertEqual(second["verification"], [])
-        self.assertEqual(len(self.retriever.calls), calls)
-        self.assertTrue(all(h.get("cached") for h in second["tool_history"]))
+        self.assertEqual(len(self.retriever.calls), calls + 1)
+        self.assertEqual([h.get("cached", False) for h in second["tool_history"]], [True, True, False])
+        self.assertNotEqual(first["plan"][2]["params"], second["plan"][2]["params"])
         self.assertEqual([f["status"] for f in second["facts"] if f["name"] == "clicked_link"],
                          ["superseded", "user_reported"])
 
