@@ -1,0 +1,15 @@
+{
+  "model": "openai/gpt-oss-20b",
+  "embedding_model": "sentence-transformers/all-MiniLM-L6-v2",
+  "embedding_revision": "main",
+  "chunk_size": 200,
+  "chunk_overlap": 30,
+  "min_chunk_chars": 50,
+  "cleaning": false,
+  "top_k": 3,
+  "context_budget_chars": 12000,
+  "distance_metric": "cosine",
+  "generation": {"max_tokens": 800, "temperature": 0.3, "top_p": 1.0, "timeout_seconds": 60},
+  "prompt_version": "b1-v1",
+  "evaluation": {"version": "b1-context-v1", "legacy_diagnostics": true}
+}

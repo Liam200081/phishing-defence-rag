@@ -8,3 +8,11 @@ __pycache__/
 
 # Local RAG knowledge base
 data/*.pdf
+
+# B1 local artifacts and environments
+.venv/
+*.egg-info/
+build/
+dist/
+experiments/b1/
+.pytest_cache/

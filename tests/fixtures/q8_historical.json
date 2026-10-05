@@ -1,0 +1,13 @@
+{
+  "query_id": "Q8",
+  "query": "What is spear phishing and how does it differ from regular phishing?",
+  "text": "information for their purpose. The sec- ond approach contains directly malware or web site containing mal- ware. Phisher starts their attacks, once the malware is installed in the victim computer, attackers steal all their personal information or login information (Shestak & Pavlyukova, 2020). 2.7 | Spear phishing This type is the most targeted type of phishing attack. In social engi- neering, it is like spam to blast millions of people using email cam- paigns. Ninety-one percent of phishing sta",
+  "source_file": "error_analysis_details.xlsx",
+  "source_sheet": "Sheet1",
+  "source_cell": "E9",
+  "source_sha256": "8bb150d53c9b4523e4132c030e104b03958c5357d8120146a7d52f7636594722",
+  "original_pdf": "unknown",
+  "original_page": "unknown",
+  "note": "Historical exported 500-character excerpt, not the full original chunk. Test mapping metadata is synthetic.",
+  "definition": "This type is the most targeted type of phishing attack."
+}

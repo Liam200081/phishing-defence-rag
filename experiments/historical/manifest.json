@@ -1,0 +1,56 @@
+{
+  "baseline": "B0",
+  "snapshot_source_commit": "512e2ec",
+  "files": [
+    {
+      "original_path": "phishing_defence_rag.ipynb",
+      "snapshot_path": "experiments/historical/phishing_defence_rag.ipynb",
+      "sha256": "b0079fd4d4f9aecf454ce22077eb5710bbaecefe4ce6a971061516ea60c7b27d"
+    },
+    {
+      "original_path": "evaluation_results.xlsx",
+      "snapshot_path": "experiments/historical/evaluation_results.xlsx",
+      "sha256": "c0a8e1b60bdec3d84827ef9e31a73c391591241429552dbc247da5f9e9cc3fc2"
+    },
+    {
+      "original_path": "ablation_v1_comparison.xlsx",
+      "snapshot_path": "experiments/historical/ablation_v1_comparison.xlsx",
+      "sha256": "4af86f91555a192ba0600c76b426784b8dfb9386b6d41f9827d5531862ead687"
+    },
+    {
+      "original_path": "error_analysis_details.xlsx",
+      "snapshot_path": "experiments/historical/error_analysis_details.xlsx",
+      "sha256": "8bb150d53c9b4523e4132c030e104b03958c5357d8120146a7d52f7636594722"
+    },
+    {
+      "original_path": "README.md",
+      "snapshot_path": "experiments/historical/README.md",
+      "sha256": "373cfd1f020c05c6588ccede41cd1b2df1f235267fbf09f78a1a4920c139e9bc"
+    },
+    {
+      "original_path": "requirements.txt",
+      "snapshot_path": "experiments/historical/requirements.txt",
+      "sha256": "78e14806d6838c33428d3d8692d6c8ea8651e5413f409e24e8bfd5389f7ee588"
+    },
+    {
+      "original_path": ".gitignore",
+      "snapshot_path": "experiments/historical/.gitignore",
+      "sha256": "77d82f0dbe2e5802772ca9e36f4a9aae285248f7a569e8bf91c547fd186b4423"
+    }
+  ],
+  "historical_run_provenance": {
+    "run_id": "unknown",
+    "code_version_at_execution": "unknown",
+    "config_at_execution": "unknown",
+    "pdf_hashes": "unavailable",
+    "index_version": "unknown",
+    "actual_generation_context": "unavailable",
+    "finish_reason": "unavailable",
+    "token_usage": "unavailable"
+  },
+  "notes": [
+    "Snapshot commit identifies preserved files, not the commit used for historical runs.",
+    "Notebook source settings are not proof of historical runtime settings.",
+    "Historical cosine scores are legacy diagnostic metrics, not factual correctness or hallucination rates."
+  ]
+}

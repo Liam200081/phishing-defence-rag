@@ -1,9 +1,1 @@
-chromadb
-groq
-pymupdf
-sentence-transformers
-pandas
-openpyxl
-python-dotenv
-torch
-transformers
+-e .[runtime]

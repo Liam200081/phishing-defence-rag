@@ -1,0 +1,42 @@
+[
+  {
+    "query_id": "Q1",
+    "query": "How should employees handle suspicious phishing emails?"
+  },
+  {
+    "query_id": "Q2",
+    "query": "What technical controls can prevent phishing attacks?"
+  },
+  {
+    "query_id": "Q3",
+    "query": "How can organizations implement multi-factor authentication to reduce phishing risk?"
+  },
+  {
+    "query_id": "Q4",
+    "query": "What are the signs that an email might be a phishing attempt?"
+  },
+  {
+    "query_id": "Q5",
+    "query": "How should a company respond after a successful phishing attack?"
+  },
+  {
+    "query_id": "Q6",
+    "query": "What employee training programs are effective against phishing?"
+  },
+  {
+    "query_id": "Q7",
+    "query": "How can email filtering systems detect phishing emails?"
+  },
+  {
+    "query_id": "Q8",
+    "query": "What is spear phishing and how does it differ from regular phishing?"
+  },
+  {
+    "query_id": "Q9",
+    "query": "How should organizations handle phishing attacks targeting executives?"
+  },
+  {
+    "query_id": "Q10",
+    "query": "What are best practices for reporting phishing attempts within an organization?"
+  }
+]

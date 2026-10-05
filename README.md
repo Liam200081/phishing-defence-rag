@@ -1,179 +1,125 @@
-# Phishing-Defence RAG System
+# Phishing-Defence RAG — B1 baseline
 
-A Retrieval-Augmented Generation (RAG) system for generating evidence-grounded phishing-defence guidance from authoritative cybersecurity sources.
+This repository implements **ADR-002 M1 only**: a single-round knowledge RAG baseline with explicit sources, complete budgeted context, response termination records and reproducible offline tests. The approved design is [ADR-002](docs/ADR-002.md). No Agent workflow, planning, verification loop, memory, email parsing or IOC analysis is implemented.
 
-The project combines semantic retrieval, an open-weight LLM, reference-free RAG evaluation, ablation experiments, and query-level failure analysis to investigate how preprocessing, retrieval quality, and context construction affect RAG reliability.
+## B0 is frozen; B1 is separate
 
-## Key Features
+The original `phishing_defence_rag.ipynb`, `evaluation_results.xlsx`, `ablation_v1_comparison.xlsx` and `error_analysis_details.xlsx` remain byte-for-byte unchanged. Do not run the old notebook in the repository root: its historical code writes fixed output filenames. Use the B1 notebook for new experiments.
 
-- RAG pipeline over authoritative cybersecurity documents
-- Sentence-transformer-based semantic retrieval
-- GPT-OSS 20B generation through Groq
-- ChromaDB vector retrieval
-- Context Relevance, Answer Relevance, and Faithfulness evaluation
-- Per-query error and failure analysis
-- PDF preprocessing ablation experiments
-- Retrieval and prompt-construction diagnostics
-- Reproducible evaluation over a 10-query benchmark
+`experiments/historical/` contains exact snapshots of all seven original repository files, their SHA-256 manifest, and explicit unknown/unavailable provenance fields. The snapshot commit identifies the saved artifacts, **not** their historical execution version. Notebook source parameters cannot establish which configuration produced an old spreadsheet.
 
-## System Workflow
+Historical B0 cleaning-ablation values remain:
 
-```text
-Cybersecurity Documents
-        ↓
-PDF Extraction & Preprocessing
-        ↓
-Text Chunking
-        ↓
-Sentence-Transformer Embeddings
-        ↓
-ChromaDB Vector Retrieval
-        ↓
-Retrieved Context
-        ↓
-GPT-OSS 20B via Groq
-        ↓
-Generated Answer
-        ↓
-RAG Evaluation + Error Analysis + Ablation Study
-```
-
-## Repository Structure
-
-```text
-phishing-defence-rag/
-├── phishing_defence_rag.ipynb      # Main notebook: end-to-end RAG pipeline
-├── README.md                        # Project documentation
-├── requirements.txt                 # Python dependencies
-├── .gitignore                       # Excludes secrets, local files, and source PDFs
-├── evaluation_results.xlsx          # Baseline evaluation results
-├── ablation_v1_comparison.xlsx      # Baseline vs cleaned-corpus comparison
-├── error_analysis_details.xlsx      # Query-level diagnostic outputs
-└── data/                            # Local knowledge-base documents (PDFs not committed)
-```
-
-> Third-party source PDFs are intentionally excluded from version control. The notebook expects the local knowledge-base files to be placed in the `data/` directory before execution.
-
-## Data Sources
-
-The local knowledge base used for the experiments contains five phishing and cybersecurity documents:
-
-- **Anti-Phishing Training Program Support** — CISA
-- **Avoiding Social Engineering and Phishing Attacks** — CISA
-- **Counter-Phishing Guidance for Non-Federal Organizations** — CISA
-- **A Review of Phishing Attacks and Countermeasures for Internet of Things-Based Environments**
-- **Phishing-Resistant Multi-Factor Authentication (MFA) Success Story: USDA FIDO Implementation** — CISA
-
-The source documents are not redistributed in this repository.
-
-## Setup
-
-### 1. Install Dependencies
-
-```bash
-pip install -r requirements.txt
-```
-
-### 2. Configure the Groq API Key
-
-Create a `.env` file in the project root directory:
-
-```env
-GROQ_API_KEY=your_groq_api_key_here
-```
-
-The `.env` file is excluded from version control through `.gitignore`. Do not commit API keys or other secrets to the repository.
-
-A Groq API key can be obtained from:
-
-```text
-https://console.groq.com/
-```
-
-### 3. Add the Knowledge-Base Documents
-
-Place the required PDF files inside:
-
-```text
-data/
-```
-
-The public repository does not include these third-party documents.
-
-### 4. Run the Notebook
-
-Open:
-
-```text
-phishing_defence_rag.ipynb
-```
-
-in Jupyter Notebook or Visual Studio Code, then run all cells from top to bottom.
-
-The pipeline will:
-
-1. Load and chunk the five PDF documents.
-2. Build a ChromaDB vector index.
-3. Run 10 benchmark queries through the RAG pipeline.
-4. Compute Context Relevance, Answer Relevance, and Faithfulness metrics.
-5. Export evaluation results.
-6. Run the V1 preprocessing ablation experiment.
-7. Produce diagnostic outputs for query-level failure analysis.
-
-Expected runtime is approximately 35–45 seconds, depending on Groq API response time and local environment.
-
-## System Requirements
-
-- Python 3.10+
-- Jupyter Notebook or Visual Studio Code
-- Internet connection for Groq API calls
-- Groq account and API key
-
-The pipeline includes short delays between API calls to reduce the likelihood of free-tier rate-limit errors.
-
-## Evaluation
-
-The project uses three lightweight, reference-free metrics implemented with embedding-based cosine similarity:
-
-- **Context Relevance** — semantic alignment between the query and retrieved context
-- **Answer Relevance** — semantic alignment between the query and generated answer
-- **Faithfulness** — an embedding-based proxy measuring semantic alignment between the generated answer and retrieved context; it is not a claim-level factual-support metric
-
-These metrics are used as diagnostic signals for controlled comparison and failure analysis. They do not replace claim-level grounding evaluation or human judgment.
-
-## Ablation Study
-
-A preprocessing ablation compares the baseline corpus with a cleaned version of the source documents.
-
-| Metric | Baseline Mean | V1 Cleaned Mean | Delta |
+| Legacy cosine diagnostic | Baseline mean | V1 cleaned mean | Delta |
 |---|---:|---:|---:|
 | Context Relevance | 0.5424 | 0.5541 | +0.0118 |
 | Answer Relevance | 0.5286 | 0.3570 | -0.1716 |
-| Faithfulness | 0.5461 | 0.3691 | -0.1770 |
+| Faithfulness proxy | 0.5461 | 0.3691 | -0.1770 |
 
-The V1 cleaning intervention slightly improved average Context Relevance, but reduced Answer Relevance and Faithfulness in the current run. The result highlights that better retrieval-level similarity does not necessarily translate into better end-to-end RAG generation quality.
+These are preserved historical diagnostics, **not** factual accuracy or hallucination rates. They do not establish any B1 improvement. V1 in that spreadsheet denotes historical cleaning, not B1.
 
-## Failure Analysis
+## Run offline tests (no dependencies or API key required)
 
-The project records query-level diagnostic outputs for retrieval and generation failures, including:
+From the repository root, Python 3.10+:
 
-- metadata pollution in retrieved chunks
-- query-dependent effects of preprocessing
-- chunk-boundary changes after cleaning
-- prompt/context construction issues
-- cases where aggregate metrics hide individual regressions
+```bash
+PYTHONPATH=src python3 -m unittest discover -s tests -v
+```
 
-Detailed outputs are exported to `error_analysis_details.xlsx` and can be inspected alongside the notebook implementation.
+Tests preserve the exact ten original questions and use fixed Mock responses. The Q8 regression uses the actual 500-character excerpt from `error_analysis_details.xlsx`, cell E9. Its definition begins after character 300. Its original PDF/page are unknown; test source mappings are explicitly synthetic. Passing these tests establishes software behavior, not model quality or original-corpus retrieval performance.
 
-## Reproducibility Notes
+## Install and run B1 with local PDFs
 
-- The ChromaDB collection is rebuilt on each full run; no persistent vector store is required.
-- The language model is accessed through the Groq API with `temperature=0.3`.
-- Small metric variations may occur across independent runs because generation is stochastic.
-- Evaluation and diagnostic results are exported to `.xlsx` files for inspection.
-- Local secrets and third-party PDFs are excluded from version control.
-- Numerical results in this README correspond to the current recorded run and should be regenerated if the model or generation settings are changed.
+```bash
+python3 -m venv .venv
+source .venv/bin/activate
+python -m pip install -r requirements.txt
+cp .env.example .env
+```
 
-## Project Scope
+Set `GROQ_API_KEY` in `.env`, or export it in the shell. Place source PDFs in `data/`. The five historical sources were:
 
-This is a small-scale RAG engineering project focused on retrieval quality, evaluation, error analysis, and preprocessing trade-offs in the phishing-defence domain.
+- Anti-Phishing Training Program Support — CISA
+- Avoiding Social Engineering and Phishing Attacks — CISA
+- Counter-Phishing Guidance for Non-Federal Organizations — CISA
+- A Review of Phishing Attacks and Countermeasures for Internet of Things-Based Environments
+- Phishing-Resistant Multi-Factor Authentication (MFA) Success Story: USDA FIDO Implementation — CISA
+
+The originals and their historical hashes are unavailable in this checkout; third-party PDFs are not redistributed. B1 records the hashes of the files actually supplied. Do not represent substitute PDFs as the original B0 dataset.
+
+```bash
+phishing-rag --config config.json --queries evaluation/queries.json --pdf-dir data
+# Or: python -m phishing_agent.cli --config config.json
+# Read and validate a saved result without model calls:
+phishing-rag --read-run experiments/b1/B1-<run-id>/run.json
+```
+
+CLI exit codes: `0` all responses completed and no evaluation errors; `2` incomplete response or evaluation error; `1` setup/read failure. A completed API response is not proof of factual correctness. Retrieval failures, no evidence and insufficient context budget produce explicit per-query failures; they are not silently turned into normal answers. API errors are saved without secret-bearing exception messages. There are no hidden SDK retries or repair calls.
+
+For the presentation notebook:
+
+```bash
+python -m pip install -e '.[notebook]'
+jupyter lab notebooks/B1_baseline.ipynb
+```
+
+Select the environment containing the installed package. Run All calls `phishing_agent.pipeline.run_b1`, exactly as the CLI does. The notebook contains no duplicate RAG implementation or dependency-install cells.
+
+Optional dependency integration checks (offline, after runtime installation):
+
+```bash
+python tests/smoke_runtime.py -v
+python -m pip check
+```
+
+These checks use actual PyMuPDF and Chroma on a generated synthetic PDF, fixed embedding vectors, and the actual Groq SDK with a Mock HTTP transport. They do not contact Groq or measure model quality.
+
+## Configuration and intentional B1 behavior changes
+
+All controls are in `config.json`, with a small validating loader. No configuration framework is required.
+
+| Control | Default / meaning |
+|---|---|
+| Model | `openai/gpt-oss-20b` via Groq, as in the old source |
+| Embedding | Explicit `sentence-transformers/all-MiniLM-L6-v2` for both indexing and querying |
+| Embedding revision | `main`, resolved to an immutable Hugging Face commit and saved with each index/run; set that saved commit in config to repeat |
+| Chunking | 200 words, 30 overlap, >50 characters; historical window/filter retained |
+| Cleaning | Off; set `cleaning` to true in a copied config to use the original cleaning rules |
+| Retrieval | Top K 3; explicit cosine distance, lower is better |
+| Context | 12,000 Unicode characters including source labels and separators |
+| Generation | temperature 0.3, top_p 1, max_tokens 800, timeout 60 seconds |
+| Prompt | `b1-v1`; deterministic explanation/comparison/guidance rules |
+| Evaluation | `b1-context-v1`; optional legacy cosine diagnostics |
+
+The embedding model loaded in B0 was not explicitly connected to Chroma. B1 makes that connection explicit and fixes the index distance to cosine. This can change rankings; it is not a quality claim. Chroma uses an isolated ephemeral collection per build. Index identity hashes the actual chunks, embedding revision and distance setting; it does not depend on the temporary collection name.
+
+Word windows can span pages, and each chunk carries document name/hash, physical 1-based page range, word offsets and stable chunk ID. B1 inserts page boundaries explicitly to avoid concatenating the last word of one page with the first of the next. Cleaning retains the historical regex function but applies it per page so provenance survives. These documented boundary changes mean B1 is not a bitwise replay of B0 preprocessing.
+
+The Context Builder includes **all retrieved chunks in full**. It does not use per-chunk `[:300]`, silently skip lower-ranked evidence, or partially slice a chunk. When the whole selection exceeds the configured budget, it records the required size and does not request an answer. Adjust the budget or Top K explicitly and create a new run. The character budget controls reference evidence, not the model's full token window; query/prompt/output tokens are additional. Provider context-limit errors remain visible as request errors. M1 has no automatic recovery.
+
+`max_tokens` increases from the historical source's 300 to 800 as an initial development setting, not a measured optimum. Q8 is handled as a comparison. Definitions receive explanations, and defensive questions receive relevant steps without an arbitrary count of three.
+
+## Trace and evaluation contract
+
+New results are exclusively created under `experiments/b1/B1-<unique-id>/run.json`; existing run directories cannot be overwritten. Each record contains:
+
+- run ID/time, baseline and execution mode;
+- Git commit/dirty status, source-file hashes, Python and relevant package versions;
+- full configuration, requested/returned model, embedding model and resolved revision, prompt version and exact messages;
+- actual PDF hashes, dataset and index identity;
+- full query IDs/text, ranked retrieval hits and distance meaning;
+- actual context with source labels, evidence offsets and complete chunk text;
+- answer, request/return status, finish reason, usage when provided, empty/truncated flags and errors;
+- per-query evaluation, context hash, evidence IDs and aggregate completion/error counts.
+
+Readback checks query alignment, context/message identity, evidence/source mapping, evaluation context hashes, response completion and summary counts. Git hashes plus dirty source hashes distinguish uncommitted implementations; untracked source files are included. API delivery on request errors is not confirmed; saved messages record the attempted request.
+
+Evaluation only accesses the actual generation context. CR, AR and Faithfulness proxy remain **legacy diagnostic metrics**. Their historical window sizes (500 characters per evidence/answer, 1,000 joined context characters) are retained within that diagnostic calculation, and the exact diagnostic inputs are saved. Those windows do not truncate model context. Because B0 scored text the generator did not see, old and new values are not directly comparable under an identical evidence scope.
+
+Empty, length-terminated, filtered, unknown-termination or failed responses are not scored as normal completed answers. Human claim-level grounding is explicitly `not_assessed` with a null score; cosine similarity does not supply a factual-support KPI. M1 does not add an LLM judge or implement the later M5 evaluation program.
+
+## Scope and limitations
+
+The original ten questions remain the B1 regression set. Historical failures and provenance gaps remain visible. No real Groq experiment or new effectiveness comparison was run for this implementation. Real source-corpus evaluation requires the local PDFs and a key. M2–M6 remain outside this change.
+
+See [M1 acceptance record](docs/M1-acceptance.md) for the exact changes, checks and final status.
