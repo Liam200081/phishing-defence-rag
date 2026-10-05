@@ -17,3 +17,8 @@ build/
 dist/
 experiments/b1/
 .pytest_cache/
+
+# W0 local checkpoints
+*.sqlite
+*.sqlite-shm
+*.sqlite-wal
