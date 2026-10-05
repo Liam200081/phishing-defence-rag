@@ -25,6 +25,26 @@ def _evidence_text(row):
     return ""
 
 
+def _risk_proposition(text):
+    """Return (direction, categorical) for an explicit risk statement, if any."""
+    value = text.lower()
+    safe_terms = r"(?:safe|harmless|benign|risk[ -]?free)"
+    risk_terms = r"(?:risk|risky|suspicious|threat|danger|dangerous|unsafe|malicious|harmful|caution)"
+    if re.search(r"\bnot\s+" + safe_terms + r"\b", value):
+        return "risk", False
+    if re.search(r"\b(?:not\s+(?:risky|suspicious|dangerous|unsafe|malicious)|"
+                 r"(?:no|without)\s+(?:risk|threat|danger))\b", value):
+        return "safe", True
+    if re.search(r"\b" + safe_terms + r"\b", value):
+        return "safe", True
+    if re.search(r"\b" + risk_terms + r"\b", value):
+        categorical = bool(re.search(r"\b(?:malicious|harmful|unsafe|(?:security\s+)?threat)\b", value))
+        if re.search(r"\b(?:may|might|could|potentially|possible|possibly)\b", value):
+            categorical = False
+        return "risk", categorical
+    return None
+
+
 def _unsupported_claim(body, evidence_by_id):
     for sentence in re.split(r"(?<=[.!?])\s+|\n+", body):
         refs = re.findall(r"\[([EMI]\d+)\]", sentence)
@@ -37,6 +57,20 @@ def _unsupported_claim(body, evidence_by_id):
         if not source:
             continue  # Legacy evidence without payload is handled by citation checks.
         claim_terms, source_terms = _tokens(claim), _tokens(source)
+        # Check concrete identifiers before accepting a semantic paraphrase.
+        identifiers = re.findall(r"\b(?:\d+(?:\.\d+)*|[\w.-]+@[\w.-]+|https?://\S+|[A-Z]{2,})\b", claim)
+        if any(identifier.lower() not in source.lower() for identifier in identifiers):
+            return "unsupported_claim", claim
+        if re.search(r"\b(?:guaranteed|definitely|certainly|always|never|confirmed)\b", claim, re.I):
+            return "unsupported_claim", claim
+        claim_risk = _risk_proposition(claim)
+        if claim_risk:
+            source_risk = _risk_proposition(source)
+            topic_terms = (claim_terms & source_terms) - {"risk"}
+            if (not source_risk or claim_risk[0] != source_risk[0] or
+                    (claim_risk[1] and not source_risk[1]) or not topic_terms):
+                return "unsupported_claim", claim
+            continue
         for negated in re.findall(r"\b(?:not|no|without)\s+([a-z]+)\b", claim.lower()):
             if not re.search(r"\b(?:not|no|without)\s+" + re.escape(negated) + r"\b", source.lower()):
                 return "unsupported_claim", claim
@@ -44,12 +78,7 @@ def _unsupported_claim(body, evidence_by_id):
             if re.search(r"\b" + re.escape(negated) + r"\b", claim.lower()) and not re.search(
                     r"\b(?:not|no|without)\s+" + re.escape(negated) + r"\b", claim.lower()):
                 return "unsupported_claim", claim
-        # Specific identifiers and categorical verdicts need direct corroboration.
-        identifiers = re.findall(r"\b(?:\d+(?:\.\d+)*|[\w.-]+@[\w.-]+|https?://\S+|[A-Z]{2,})\b", claim)
-        if any(identifier.lower() not in source.lower() for identifier in identifiers):
-            return "unsupported_claim", claim
-        if re.search(r"\b(?:guaranteed|definitely|certainly|always|never)\b", claim, re.I):
-            return "unsupported_claim", claim
+        # Other categorical verdicts still need direct corroboration.
         if re.search(r"\b(?:safe|malicious|compromised|breached)\b", claim, re.I) and not re.search(
                 r"\b(?:safe|malicious|compromised|breached)\b", source, re.I):
             return "unsupported_claim", claim

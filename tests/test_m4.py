@@ -148,6 +148,32 @@ class M4Tests(unittest.TestCase):
         state["answer"]["answer"] = "NASA runs all phishing campaigns [E1]."
         self.assertEqual(verify(state)[0]["failure_type"], "unsupported_claim")
 
+    def test_risk_direction_and_certainty_follow_cited_evidence(self):
+        state = {"request": {"kind": "knowledge", "question": "What is phishing?"},
+                 "answer": {"answer": ""},
+                 "evidence": [{"id": "E1", "kind": "knowledge", "data": HIT}],
+                 "context": real_build_context([HIT], 10000)["text"],
+                 "facts": [], "tool_history": []}
+        supported = (
+            "Phishing links may pose a security threat [E1].",
+            "Phishing links are risky [E1].",
+            "Phishing links are not safe [E1].",
+        )
+        unsupported = (
+            "Phishing links are risk free [E1].",
+            "Phishing links are not suspicious [E1].",
+            "Phishing links definitely pose a security threat [E1].",
+            "Phishing links are malicious [E1].",
+        )
+        for answer in supported:
+            with self.subTest(answer=answer):
+                state["answer"]["answer"] = answer
+                self.assertEqual(verify(state), [])
+        for answer in unsupported:
+            with self.subTest(answer=answer):
+                state["answer"]["answer"] = answer
+                self.assertEqual(verify(state)[0]["failure_type"], "unsupported_claim")
+
     def test_context_omission_rebuilds_before_final_answer(self):
         omitted = {"request": {"kind": "knowledge", "question": "What is phishing?"},
                    "answer": {"answer": "Phishing links require caution [E1]."},
