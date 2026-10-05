@@ -119,6 +119,27 @@ class WorkflowTests(unittest.TestCase):
         self.assertEqual(opened["status"], "completed")
         self.assertEqual(opened["clarification"]["asked"], [])
 
+    def test_account_takeover_and_attacker_access_phrasings(self):
+        mail = "From: a@example.org\nSubject: Check\n\nVisit https://example.org"
+        questions = ("Has my account been taken over?",
+                     "Could the attacker access my account?")
+        for index, question in enumerate(questions):
+            with self.subTest(question=question):
+                case_id = f"access-{index}"
+                waiting = self.workflow.run(case_id, {"kind": "email", "question": question,
+                                                      "email_text": mail})
+                self.assertEqual(waiting["clarification"]["pending"], "clicked_link")
+                clicked = self.workflow.resume(case_id, {"clicked_link": True})
+                self.assertEqual(clicked["clarification"]["pending"], "credential_submitted")
+                done = self.workflow.resume(case_id, {"credential_submitted": False})
+                self.assertEqual(done["status"], "completed")
+                self.assertEqual(len(done["clarification"]["asked"]), 2)
+
+                known = self.workflow.run(f"known-{index}", {"kind": "email", "question": question,
+                    "email_text": mail, "facts": {"clicked_link": False}})
+                self.assertEqual(known["status"], "completed")
+                self.assertEqual(known["clarification"]["asked"], [])
+
     def test_explicit_event_description_avoids_unnecessary_clarification(self):
         mail = "From: a@example.org\nSubject: Check\n\nVisit https://example.org"
         state = self.workflow.run("opened", {"kind": "email",
