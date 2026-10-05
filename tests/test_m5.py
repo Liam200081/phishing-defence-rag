@@ -6,13 +6,16 @@ from pathlib import Path
 import sys
 import tempfile
 import unittest
+from unittest.mock import patch
 
 ROOT = Path(__file__).resolve().parents[1]
 sys.path.insert(0, str(ROOT / "src"))
 
 from phishing_agent.config import load_config
 from phishing_agent.evaluation import (Meter, digest, execute_case, failure_analysis,
-    knowledge_cases, load_cases, run_experiment, score_result, score_run)
+    knowledge_cases, load_cases, run_experiment, score_result, score_run,
+    validate_current_version)
+from phishing_agent.eval_cli import main as eval_main
 
 HIT = {"text": "Phishing links require caution and can be suspicious.",
        "document": "test.pdf", "document_sha256": "a" * 64, "page_start": 1, "page_end": 1,
@@ -79,6 +82,7 @@ class M5Tests(unittest.TestCase):
         self.assertEqual(run["config_sha256"], digest(self.config))
         self.assertEqual(run["conditions"]["B1"]["information"], "question_only")
         self.assertEqual(run["conditions"]["W0"]["information"], "question_and_email")
+        self.assertEqual([r["execution_order"] for r in run["results"]], [0, 1, 2])
         self.assertTrue(path.exists())
         self.assertTrue(all(r["trace"] for r in run["results"]))
         reviews = [review_for(r, self.case, met=r["mode"] != "B1") for r in run["results"]]
@@ -136,6 +140,9 @@ class M5Tests(unittest.TestCase):
             score_result(bad_result, self.case, good)
         bad = review_for(result, self.case, supported=False)
         self.assertFalse(score_result(result, self.case, bad)["success"])
+        bad["failure"] = {"type": "clarification", "reason": "unrelated", "trace_refs": [0]}
+        with self.assertRaises(ValueError):
+            score_result(result, self.case, bad)
 
     def test_scripted_timeout_is_visible_and_counted(self):
         case = deepcopy(self.case)
@@ -165,6 +172,24 @@ class M5Tests(unittest.TestCase):
         self.assertEqual(meter.summary()["usage_missing_calls"], 1)
         self.assertEqual(meter.summary()["usage"]["total_tokens"], 15)
 
+    def test_rate_limit_retry_keeps_failed_attempt(self):
+        class Limited(Exception):
+            status_code = 429
+            response = type("Response", (), {"headers": {"retry-after": "1"}})()
+        attempts = 0
+        def flaky(**kwargs):
+            nonlocal attempts
+            attempts += 1
+            if attempts == 1:
+                raise Limited()
+            return completion(**kwargs)
+        with patch("phishing_agent.evaluation.time.sleep"):
+            meter = Meter(self.retriever, flaky, retry_429=1)
+            meter(messages=[{"content": "same"}])
+        self.assertEqual([c["status"] for c in meter.calls], ["error", "ok"])
+        self.assertEqual(meter.summary()["usage_missing_calls"], 1)
+        self.assertEqual(meter.summary()["usage"]["total_tokens"], 15)
+
     def test_split_guard_and_knowledge_regression(self):
         dev = load_cases(ROOT / "evaluation/cases/m2_cases.json", "development")
         hold = load_cases(ROOT / "evaluation/cases/m2_cases.json", "held_out")
@@ -188,6 +213,43 @@ class M5Tests(unittest.TestCase):
         self.assertEqual(summary["repeat_case_success_rates"], [1.0, 0.0])
         self.assertEqual(summary["repeat_range"], [0.0, 1.0])
         self.assertEqual(summary["case_success_rate"]["denominator"], 2)
+
+    def test_interleaving_rotates_mode_order_by_case(self):
+        cases = knowledge_cases(ROOT / "evaluation/queries.json")[:2]
+        run, _ = run_experiment(cases, ["B1", "W0", "A1"], self.config, self.retriever,
+                                completion, self.root, self.root / "out",
+                                split="knowledge_regression", provenance={"test": True})
+        self.assertEqual([(r["case_id"], r["mode"]) for r in run["results"]],
+                         [("Q1", "B1"), ("Q1", "W0"), ("Q1", "A1"),
+                          ("Q2", "W0"), ("Q2", "A1"), ("Q2", "B1")])
+
+    def test_version_guard_and_immutable_review_scores(self):
+        case = knowledge_cases(ROOT / "evaluation/queries.json")[0]
+        run, path = run_experiment([case], ["B1"], self.config, self.retriever,
+                                   completion, self.root, self.root / "out",
+                                   split="knowledge_regression", provenance={"test": True})
+        with patch("phishing_agent.evaluation.code_provenance", return_value={
+                "git_commit": "c1", "git_dirty": False, "source_tree_sha256": "s1"}):
+            run["code"] = {"git_commit": "c1", "git_dirty": False, "source_tree_sha256": "s1"}
+            self.assertTrue(validate_current_version(run, self.root))
+            run["code"]["git_commit"] = "old"
+            with self.assertRaises(ValueError):
+                validate_current_version(run, self.root)
+        reviews = [review_for(run["results"][0], case)]
+        review_path = self.root / "reviews.json"
+        review_path.write_text(json.dumps(reviews), encoding="utf-8")
+        args = ["score", str(path), "--reviews", str(review_path),
+                "--queries", str(ROOT / "evaluation/queries.json"), "--allow-historical"]
+        eval_main(args)
+        first = sorted(path.parent.glob("score-*.json"))
+        self.assertEqual(len(first), 1)
+        content = first[0].read_text()
+        eval_main(args)
+        self.assertEqual(first[0].read_text(), content)
+        reviews[0] = review_for(run["results"][0], case, met=False)
+        review_path.write_text(json.dumps(reviews), encoding="utf-8")
+        eval_main(args)
+        self.assertEqual(len(list(path.parent.glob("score-*.json"))), 2)
 
 
 if __name__ == "__main__":

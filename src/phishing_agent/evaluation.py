@@ -60,10 +60,13 @@ def _usage(raw):
 
 
 class Meter:
-    def __init__(self, retriever, completion):
+    def __init__(self, retriever, completion, *, gate=None, retry_429=0):
         self.retriever = retriever
         self.completion = completion
+        self.gate = gate
+        self.retry_429 = retry_429
         self.calls = []
+        self.throttle_seconds = 0.0
         self.chunks = retriever.chunks
         self.embedding = retriever.embedding
 
@@ -81,17 +84,28 @@ class Meter:
             raise
 
     def __call__(self, **kwargs):
-        row = {"kind": "llm", "name": "generate", "key": digest(kwargs.get("messages")),
-               "status": "error", "usage": None}
-        self.calls.append(row)
-        try:
-            raw = self.completion(**kwargs)
-            row.update(status="ok", usage=_usage(raw))
-            return raw
-        except Exception as exc:
-            row["error_type"] = type(exc).__name__
-            row["status_code"] = getattr(exc, "status_code", None)
-            raise
+        for attempt in range(self.retry_429 + 1):
+            if self.gate:
+                self.throttle_seconds += self.gate.wait()
+            row = {"kind": "llm", "name": "generate", "key": digest(kwargs.get("messages")),
+                   "status": "error", "usage": None, "attempt": attempt + 1}
+            self.calls.append(row)
+            try:
+                raw = self.completion(**kwargs)
+                row.update(status="ok", usage=_usage(raw))
+                return raw
+            except Exception as exc:
+                row["error_type"] = type(exc).__name__
+                row["status_code"] = getattr(exc, "status_code", None)
+                if row["status_code"] != 429 or attempt == self.retry_429:
+                    raise
+                headers = getattr(getattr(exc, "response", None), "headers", {}) or {}
+                try:
+                    delay = min(60.0, max(1.0, float(headers.get("retry-after", 15))))
+                except (TypeError, ValueError):
+                    delay = 15.0
+                time.sleep(delay)
+                self.throttle_seconds += delay
 
     def summary(self):
         counts = Counter(c["kind"] for c in self.calls)
@@ -105,6 +119,21 @@ class Meter:
                                            (not c["usage"] or c["usage"]["total_tokens"] is None)
                                            for c in self.calls)}
 
+
+class RateGate:
+    def __init__(self, min_interval_seconds=0):
+        if min_interval_seconds < 0:
+            raise ValueError("min interval must be nonnegative")
+        self.interval = min_interval_seconds
+        self.last = None
+
+    def wait(self):
+        now = time.monotonic()
+        delay = max(0.0, self.interval - (now - self.last)) if self.last is not None else 0.0
+        if delay:
+            time.sleep(delay)
+        self.last = time.monotonic()
+        return delay
 
 def _request(case, root):
     question = case["user_initial_input"]
@@ -142,6 +171,7 @@ def _snapshots(workflow, case_id):
     return [{"node": s.next[0] if s.next else "finished",
              "checkpoint_step": s.metadata.get("step"),
              "status": s.values.get("status"), "plan": s.values.get("plan", []),
+             "facts": s.values.get("facts", []),
              "tool_history": s.values.get("tool_history", []),
              "evidence": s.values.get("evidence", []),
              "verification": s.values.get("verification", []),
@@ -150,10 +180,10 @@ def _snapshots(workflow, case_id):
             for s in reversed(list(workflow.graph.get_state_history(cfg))) if s.values]
 
 
-def execute_case(case, mode, config, retriever, completion, root, sqlite_path):
+def execute_case(case, mode, config, retriever, completion, root, sqlite_path, *, gate=None, retry_429=0):
     if mode not in MODES:
         raise ValueError("unknown mode")
-    meter = Meter(retriever, completion)
+    meter = Meter(retriever, completion, gate=gate, retry_429=retry_429)
     request = _request(case, Path(root))
     started = time.monotonic()
     replies_used, trace, error = [], [], None
@@ -220,6 +250,7 @@ def execute_case(case, mode, config, retriever, completion, root, sqlite_path):
             "scenario": case.get("scenario", "knowledge_regression"),
             "status": status, "answer": answer, "evidence": evidence, "trace": trace,
             "calls": meter.calls, "diagnostics": {**usage, "active_seconds": elapsed,
+                "throttle_seconds": round(meter.throttle_seconds, 6),
                 "clarification_asked": sorted({f for event in trace
                     for f in event.get("clarification", {}).get("asked", [])}),
                 "clarification_replies": replies_used,
@@ -231,7 +262,8 @@ def execute_case(case, mode, config, retriever, completion, root, sqlite_path):
 
 
 def run_experiment(cases, modes, config, retriever, completion, root, output_dir, *,
-                   split, repeat=1, provenance=None, run_id=None):
+                   split, repeat=1, provenance=None, run_id=None,
+                   min_interval_seconds=0, retry_429=0, preflight=None):
     validate_config(config)
     if not cases or any(c["split"] != split for c in cases) or len({c["case_id"] for c in cases}) != len(cases):
         raise ValueError("cases must have unique IDs and one split")
@@ -239,6 +271,9 @@ def run_experiment(cases, modes, config, retriever, completion, root, output_dir
         raise ValueError("invalid modes")
     if type(repeat) is not int or repeat < 1:
         raise ValueError("repeat must be positive")
+    if type(retry_429) is not int or retry_429 < 0 or retry_429 > 3:
+        raise ValueError("retry_429 must be 0..3")
+    gate = RateGate(min_interval_seconds)
     run_id = run_id or "M5-" + uuid.uuid4().hex
     folder = Path(output_dir) / run_id
     folder.mkdir(parents=True, exist_ok=False)
@@ -251,17 +286,23 @@ def run_experiment(cases, modes, config, retriever, completion, root, output_dir
                     "index_version": retriever.index_version, "embedding": deepcopy(retriever.embedding),
                     "knowledge_snapshot": digest(retriever.chunks),
                     "code": provenance or code_provenance(root),
+                    "preflight": preflight,
+                    "runtime": {"min_interval_seconds": min_interval_seconds,
+                                "retry_429": retry_429, "schedule": "case_interleaved_rotating"},
                     "conditions": {m: {"planning": MODES[m][0], "reflection": MODES[m][1],
                                        "information": "question_only" if m == "B1" else "question_and_email"}
                                    for m in modes}, "repeat": repeat,
                     "pricing": None, "results": []}
         for repetition in range(repeat):
-            for mode in modes:
-                for case in cases:
+            for case_index, case in enumerate(cases):
+                offset = (case_index + repetition) % len(modes)
+                for mode in [*modes[offset:], *modes[:offset]]:
                     result = execute_case(case, mode, config, retriever, completion, root,
-                                          folder / f"{repetition}-{mode}-{case['case_id']}.sqlite")
+                                          folder / f"{repetition}-{mode}-{case['case_id']}.sqlite",
+                                          gate=gate, retry_429=retry_429)
                     result["repetition"] = repetition
                     result["case_sha256"] = digest(case)
+                    result["execution_order"] = len(manifest["results"])
                     manifest["results"].append(result)
         path = folder / "run.json"
         path.write_text(json.dumps(manifest, ensure_ascii=False, indent=2, default=str) + "\n", encoding="utf-8")
@@ -276,6 +317,44 @@ def run_experiment(cases, modes, config, retriever, completion, root, output_dir
 def _evidence_text(row):
     data = row.get("data", {})
     return json.dumps(data, ensure_ascii=False, default=str) if isinstance(data, dict) else str(data)
+
+
+def validate_current_version(run, root):
+    """Reject old or dirty code before presenting a saved run as current evidence."""
+    saved = run.get("code", {})
+    current = code_provenance(root)
+    if saved.get("git_dirty") is not False or current["git_dirty"] is not False:
+        raise ValueError("formal scoring requires clean run and current worktrees")
+    if (saved.get("git_commit") != current["git_commit"] or
+            saved.get("source_tree_sha256") != current["source_tree_sha256"]):
+        raise ValueError("saved run was produced by another code version")
+    if digest(run["config"]) != run["config_sha256"]:
+        raise ValueError("saved run config fingerprint mismatch")
+    return True
+
+
+def _failure_trace_relevant(failure_type, events):
+    if failure_type == "retrieval/context":
+        return any(e.get("context") or e.get("retrieved") or
+                   any(h.get("tool") == "retrieve_knowledge" for h in e.get("tool_history", []))
+                   for e in events)
+    if failure_type == "planning":
+        return any(e.get("plan") for e in events)
+    if failure_type == "tool routing/execution":
+        return any(e.get("tool_history") or any(c.get("kind") == "tool" for c in e.get("calls", []))
+                   for e in events)
+    if failure_type == "fact/state":
+        return any(e.get("facts") for e in events)
+    if failure_type == "clarification":
+        return any(e.get("clarification", {}).get("asked") or
+                   e.get("clarification", {}).get("pending") for e in events)
+    if failure_type == "verification/reflection":
+        return any(e.get("verification") for e in events)
+    if failure_type == "budget/termination":
+        return any(e.get("status") in {"limited", "execution_error"} or
+                   e.get("answer", {}).get("complete") is False or e.get("budget")
+                   for e in events)
+    return any(e.get("answer") or e.get("evidence") for e in events)
 
 
 def score_result(result, case, review):
@@ -333,6 +412,8 @@ def score_result(result, case, review):
         refs = failure.get("trace_refs", [])
         if not refs or any(type(i) is not int or i < 0 or i >= len(result["trace"]) for i in refs):
             raise ValueError("failure requires actual trace indices")
+        if not _failure_trace_relevant(failure["type"], [result["trace"][i] for i in refs]):
+            raise ValueError("failure trace does not contain the cited failure category")
     return {"success": success, "supported": sum(c["supported"] for c in claims),
             "claims": len(claims), "failure": failure}
 
