@@ -1,5 +1,7 @@
 # M5 运行记录与验收状态
 
+外部评测限制：development 已保存 57/60 条，但 429、413 和 timeout 使部分调用缺少 usage；完整 holdout 与重复运行尚未完成。保留原始部分结果及 `usage_incomplete` 标记，不把缺失 usage 算零，也不补跑以替代完整对照。这些是外部评测限制，不是本轮确认的代码缺陷；面试前不以补齐正式 KPI 为完成条件。
+
 ## 已保存批次（代码提交 8db5acc）
 
 - 运行 ID：`M5-98428c89cc5c4278802f69c971808c15`；代码提交：`8db5acce07b34dd07c97e770da7ca44bb02fc09a`，启动时 Git clean。
@@ -21,19 +23,21 @@
 
 ## 验收结论
 
-当前没有可发布的 B1/W0/A1 三项 KPI、逐 Case 人工复核或 held_out 重复运行。`evaluation/M5.md` 中的冻结复核口径未用于修改任何 holdout Case 或成功条件。完成验收仍需在服务额度足够且请求大小被服务接受的条件下，用同一固定配置重新运行完整对照，逐条复核并保存独立评分文件。若该模型持续无法接受长邮件请求，必须先将这一限制作为独立设计问题处理，不能用删 Case、改 holdout 或把无 usage 记零的方式制造结果。
+当前没有可发布的 B1/W0/A1 三项正式 KPI、逐 Case 人工签署复核或 held_out 重复运行。`evaluation/M5.md` 中的冻结复核口径未用于修改任何 holdout Case 或成功条件。日后如需发布正式 KPI，应在服务额度足够且请求大小被服务接受的条件下，用同一固定配置重新运行完整对照，逐条人工复核并保存独立评分文件；此项外部评测工作不列为本轮代码修复或面试前收敛条件。若该模型持续无法接受长邮件请求，应将这一限制作为独立设计问题处理，不能用删 Case、改 holdout 或把无 usage 记零的方式制造结果。
 
 ## 收敛补跑：复用有效结果
 
 按“无模型服务错误、usage 完整”筛选，上述 development 部分记录可直接复用 B1 5 条、W0 3 条、A1 1 条；没有同一 Case 的三模式完整配对。`SA-00151-1` 的 A1 结果保留原记录，只补跑 B1/W0（运行 `M5-c8621d3b69bd44cc94a38dab4b8b38b6`）。配置与知识快照指纹相同，业务图、工具和 prompt 未变；M5 runner 的提交版本不同，执行时间也不同，因此只用于诊断，不声称总体质量效应。
 
-短邮件 holdout Case `SA-00003-1` 在冻结配置下完成三模式配对（运行 `M5-11eafe7f2c24481fbbfbc0c32a42926e`，提交 `bc947b1`）。[逐断言复核草稿](reviews/SA-00003-1-codex-draft.json)及本地 `score-cb1d0d6e1c4441c7.json` 可逐项核对；草稿由 Codex 编制，**没有人类复核签署**，不得作为正式 holdout KPI。
+短邮件 holdout Case `SA-00003-1` 在冻结配置下完成三模式配对（运行 `M5-11eafe7f2c24481fbbfbc0c32a42926e`，提交 `bc947b1`）。[逐断言复核草稿](reviews/SA-00003-1-codex-draft.json)已逐条将原 `false` 判定复核为 `unsupported`：原理由均为证据未能证明断言，并无相反证据，故没有标记 `contradictory`。用 `--allow-historical` 对同一保存运行重新评分，结果为本地 `score-432e170daad18416.json`；旧 `score-cb1d0d6e1c4441c7.json` 是布尔复核格式的历史评分，不再引用作当前分类结果。草稿由 Codex 编制，**没有人类复核签署**，不得作为正式 holdout KPI。
 
 | 模式 | 有效 Case | 草稿 Case Success | 草稿 Evidence Support | 已知 token | LLM / Tool 调用 | Cost per Successful Case |
 | --- | ---: | ---: | ---: | ---: | ---: | --- |
 | B1 | 1/1 | 0/1 | 1/5 | 2,276 | 1 / 1 | 无成功 Case，不可计算 |
 | W0 | 1/1 | 0/1 | 7/9 | 1,897 | 1 / 2 | 无成功 Case，不可计算 |
 | A1 | 1/1 | 0/1 | 0/0（N/A） | 3,717 | 2 / 2 | 无成功 Case，不可计算 |
+
+新评分的断言分类计数：B1 为 `supported=1, unsupported=4, contradictory=0`；W0 为 `7, 2, 0`；A1 无关键事实断言，Case 级状态为 `N/A`。Evidence Support Rate 的原二元分子/分母未变。
 
 B1 只收到问题，输出通用清单而非该邮件的观察；W0 观察到邮件字段，但将未核实的发件身份描述为“routine”；A1 的验证与修复后仍未给出有引用的观察。单 Case 草稿不能代表 12 个 holdout Case 的效果。Case Success 与 Evidence Support 已在评分实现中解耦：非关键的不受支持断言只降低 Evidence Support；预定义条件未满足或关键错误才使 Case 失败。
 

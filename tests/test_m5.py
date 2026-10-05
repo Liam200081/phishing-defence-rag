@@ -37,7 +37,7 @@ def completion(**kwargs):
             "usage": {"prompt_tokens": 10, "completion_tokens": 5, "total_tokens": 15}}
 
 
-def review_for(result, case, *, met=True, supported=True):
+def review_for(result, case, *, met=True, verdict="supported"):
     return {"repetition": result.get("repetition", 0), "mode": result["mode"],
             "case_id": result["case_id"],
             "expected_result_status": case["expected_result_status"],
@@ -45,11 +45,11 @@ def review_for(result, case, *, met=True, supported=True):
             "conditions": [{"text": text, "met": met, "reason": "Reviewed saved answer and trace"}
                            for text in case["success_conditions"]],
             "critical_error": False,
-            "claims": [{"text": "Phishing links require caution", "supported": supported,
+            "claims": [{"text": "Phishing links require caution", "verdict": verdict,
                         "reason": "Compared exact answer and source excerpt",
                         "evidence_refs": ["E1"],
-                        "evidence_quotes": ["Phishing links require caution"] if supported else []}],
-            "failure": None if met and supported else
+                        "evidence_quotes": ["Phishing links require caution"] if verdict == "supported" else []}],
+            "failure": None if met and verdict == "supported" else
                 {"type": "answer/grounding", "reason": "Reviewed claim lacks support or condition failed",
                  "trace_refs": [0]}}
 
@@ -93,6 +93,8 @@ class M5Tests(unittest.TestCase):
                          "not_computable_zero_success")
         self.assertEqual(scored["modes"]["W0"]["cost_per_successful_case"]["total"], 15)
         self.assertEqual(scored["modes"]["A1"]["evidence_support_rate"]["numerator"], 1)
+        self.assertEqual(scored["modes"]["A1"]["evidence_support_rate"]["claim_counts"],
+                         {"supported": 1, "unsupported": 0, "contradictory": 0})
         failures = failure_analysis(run, scored)
         self.assertEqual(len(failures), 1)
         self.assertEqual(failures[0]["failure_type"], "answer/grounding")
@@ -138,10 +140,13 @@ class M5Tests(unittest.TestCase):
         bad_result["answer"]["answer"] = "Phishing links require caution [E999]."
         with self.assertRaises(ValueError):
             score_result(bad_result, self.case, good)
-        bad = review_for(result, self.case, supported=False)
+        bad = review_for(result, self.case, verdict="unsupported")
+        bad["claims"][0]["evidence_refs"] = []
         bad["failure"] = None
         self.assertTrue(score_result(result, self.case, bad)["success"])
         self.assertEqual(score_result(result, self.case, bad)["supported"], 0)
+        self.assertEqual(score_result(result, self.case, bad)["claim_counts"],
+                         {"supported": 0, "unsupported": 1, "contradictory": 0})
         bad["critical_error"] = True
         bad["critical_error_reason"] = "Unsupported central conclusion"
         bad["failure"] = {"type": "answer/grounding", "reason": "Unsupported central conclusion",
@@ -150,6 +155,37 @@ class M5Tests(unittest.TestCase):
         bad["failure"] = {"type": "clarification", "reason": "unrelated", "trace_refs": [0]}
         with self.assertRaises(ValueError):
             score_result(result, self.case, bad)
+
+    def test_contradiction_requires_real_conflicting_evidence_and_na_is_case_level(self):
+        result = execute_case(self.case, "B1", self.config, self.retriever, completion,
+                              self.root, self.root / "contradiction.sqlite")
+        result["answer"]["answer"] = "Phishing links do not require caution."
+        review = review_for(result, self.case, verdict="contradictory")
+        review["claims"][0].update({"text": "Phishing links do not require caution",
+                                    "reason": "E1 says phishing links require caution, the opposite of the answer.",
+                                    "evidence_refs": ["E1"],
+                                    "evidence_quotes": ["Phishing links require caution"]})
+        review["failure"] = None
+        self.assertEqual(score_result(result, self.case, review)["claim_counts"]["contradictory"], 1)
+        for invalid_quote in ([], ["Unseen opposite claim"]):
+            bad = deepcopy(review)
+            bad["claims"][0]["evidence_quotes"] = invalid_quote
+            with self.assertRaises(ValueError):
+                score_result(result, self.case, bad)
+        old = deepcopy(review)
+        old["claims"][0].pop("verdict")
+        old["claims"][0]["supported"] = False
+        with self.assertRaises(ValueError):
+            score_result(result, self.case, old)
+        review["claims"] = []
+        self.assertEqual(score_result(result, self.case, review)["claims"], 0)
+        run, _ = run_experiment([self.case], ["B1"], self.config, self.retriever,
+                                completion, self.root, self.root / "no-claims",
+                                split="development", provenance={})
+        empty = review_for(run["results"][0], self.case)
+        empty["claims"] = []
+        self.assertEqual(score_run(run, [self.case], [empty])["modes"]["B1"]
+                         ["evidence_support_rate"]["status"], "N/A")
 
     def test_scripted_timeout_is_visible_and_counted(self):
         case = deepcopy(self.case)

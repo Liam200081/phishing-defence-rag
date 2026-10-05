@@ -23,14 +23,14 @@
     "claims": [
       {
         "text": "Active content is a common vector for malware and is usually blocked by default.",
-        "supported": false,
+        "verdict": "unsupported",
         "reason": "Saved E1 excerpt starts mid-sentence and does not establish this whole claim.",
         "evidence_refs": [],
         "evidence_quotes": []
       },
       {
         "text": "Phishers often use deceptive links to lure users to malicious sites.",
-        "supported": true,
+        "verdict": "supported",
         "reason": "E3 describes luring recipients to click links carrying malicious code.",
         "evidence_refs": [
           "E3"
@@ -41,21 +41,21 @@
       },
       {
         "text": "Authentication failures are a common indicator of spoofed or forged emails.",
-        "supported": false,
+        "verdict": "unsupported",
         "reason": "E1 names SPF/DMARC but does not establish the asserted diagnostic relationship.",
         "evidence_refs": [],
         "evidence_quotes": []
       },
       {
         "text": "Phishing emails often use urgency or fear to prompt clicks.",
-        "supported": false,
+        "verdict": "unsupported",
         "reason": "Saved evidence discusses attention and clicking, not urgency or fear.",
         "evidence_refs": [],
         "evidence_quotes": []
       },
       {
         "text": "Credential‑harvesting is a common phishing goal.",
-        "supported": false,
+        "verdict": "unsupported",
         "reason": "The cited saved excerpt does not establish prevalence of credential harvesting.",
         "evidence_refs": [],
         "evidence_quotes": []
@@ -93,7 +93,7 @@
     "claims": [
       {
         "text": "Starflung NIC <nic@starflung.com>",
-        "supported": true,
+        "verdict": "supported",
         "reason": "Exact From field in parsed mail.",
         "evidence_refs": [
           "M1"
@@ -104,7 +104,7 @@
       },
       {
         "text": "Automated 30 day renewal reminder 2002-05-27",
-        "supported": true,
+        "verdict": "supported",
         "reason": "Exact parsed Subject field.",
         "evidence_refs": [
           "M1"
@@ -115,7 +115,7 @@
       },
       {
         "text": "nutmegclothing.com",
-        "supported": true,
+        "verdict": "supported",
         "reason": "Exact domain in parsed body.",
         "evidence_refs": [
           "M1"
@@ -126,7 +126,7 @@
       },
       {
         "text": "2002-06-26",
-        "supported": true,
+        "verdict": "supported",
         "reason": "Exact date in parsed body.",
         "evidence_refs": [
           "M1"
@@ -137,7 +137,7 @@
       },
       {
         "text": "URLs** | None present",
-        "supported": true,
+        "verdict": "supported",
         "reason": "Parser recorded an empty URL list.",
         "evidence_refs": [
           "M1"
@@ -148,7 +148,7 @@
       },
       {
         "text": "Attachments** | None present",
-        "supported": true,
+        "verdict": "supported",
         "reason": "Parser recorded an empty attachment list.",
         "evidence_refs": [
           "M1"
@@ -159,7 +159,7 @@
       },
       {
         "text": "Warnings or flags** | None flagged by the parser",
-        "supported": true,
+        "verdict": "supported",
         "reason": "Parser recorded an empty warnings list.",
         "evidence_refs": [
           "M1"
@@ -170,14 +170,14 @@
       },
       {
         "text": "a routine domain‑renewal reminder from a domain registration authority",
-        "supported": false,
+        "verdict": "unsupported",
         "reason": "Message content and asserted sender do not verify routine status or sender authority.",
         "evidence_refs": [],
         "evidence_quotes": []
       },
       {
         "text": "no links, attachments, or other active content",
-        "supported": false,
+        "verdict": "unsupported",
         "reason": "Parser establishes no URLs or attachments, but not absence of all active content.",
         "evidence_refs": [],
         "evidence_quotes": []

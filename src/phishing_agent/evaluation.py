@@ -376,7 +376,9 @@ def _failure_trace_relevant(failure_type, events):
 def score_result(result, case, review):
     """Review must supply claim-level judgments with exact answer and evidence excerpts."""
     if review is None:
-        return {"success": None, "supported": 0, "claims": 0, "failure": None}
+        return {"success": None, "supported": 0, "claims": 0,
+                "claim_counts": {"supported": 0, "unsupported": 0, "contradictory": 0},
+                "failure": None}
     if review.get("case_id") != result["case_id"] or review.get("mode") != result["mode"]:
         raise ValueError("review identity mismatch")
     if review.get("expected_result_status") != case["expected_result_status"] or type(review.get("status_met")) is not bool or not review.get("status_reason"):
@@ -392,25 +394,33 @@ def score_result(result, case, review):
     claims = review.get("claims")
     if not isinstance(claims, list):
         raise ValueError("claims must be reviewed, including an empty list")
+    claim_counts = {"supported": 0, "unsupported": 0, "contradictory": 0}
     for claim in claims:
-        if not claim.get("text") or claim["text"] not in answer or type(claim.get("supported")) is not bool:
-            raise ValueError("claim must quote saved answer and have a judgment")
+        verdict = claim.get("verdict")
+        if not claim.get("text") or claim["text"] not in answer or verdict not in claim_counts or "supported" in claim:
+            raise ValueError("claim must quote saved answer and have an explicit verdict")
         if not claim.get("reason"):
             raise ValueError("claim review needs a reason")
         refs = claim.get("evidence_refs", [])
-        if claim["supported"]:
-            if not refs or not claim.get("evidence_quotes") or len(refs) != len(claim["evidence_quotes"]):
-                raise ValueError("support requires exact cited evidence excerpts")
+        quotes = claim.get("evidence_quotes", [])
+        if verdict in {"supported", "contradictory"}:
+            if not refs or not quotes or len(refs) != len(quotes):
+                raise ValueError("supported or contradictory verdict requires exact evidence excerpts")
             sentence = next((part for part in re.split(r"(?<=[.!?])\s+|\n+", answer)
                              if claim["text"] in part), "")
             cited = set(re.findall(r"\[([EMI]\d+)\]", sentence))
-            if cited and (cited - evidence.keys() or cited - set(refs)):
+            if verdict == "supported" and cited and (cited - evidence.keys() or cited - set(refs)):
                 raise ValueError("answer citation does not match reviewed evidence")
-            for ref, quote in zip(refs, claim["evidence_quotes"]):
+            for ref, quote in zip(refs, quotes):
                 if ref not in evidence or not quote or quote not in _evidence_text(evidence[ref]):
-                    raise ValueError("support quote not found in saved evidence")
-        elif any(ref not in evidence for ref in refs):
-            raise ValueError("unknown evidence reference")
+                    raise ValueError("review quote not found in saved evidence")
+        else:
+            if any(ref not in evidence for ref in refs) or len(refs) != len(quotes):
+                raise ValueError("unsupported review has invalid evidence references")
+            for ref, quote in zip(refs, quotes):
+                if not quote or quote not in _evidence_text(evidence[ref]):
+                    raise ValueError("review quote not found in saved evidence")
+        claim_counts[verdict] += 1
     critical_error = review.get("critical_error")
     if type(critical_error) is not bool:
         raise ValueError("critical_error judgment required")
@@ -429,8 +439,8 @@ def score_result(result, case, review):
             raise ValueError("failure requires actual trace indices")
         if not _failure_trace_relevant(failure["type"], [result["trace"][i] for i in refs]):
             raise ValueError("failure trace does not contain the cited failure category")
-    return {"success": success, "supported": sum(c["supported"] for c in claims),
-            "claims": len(claims), "failure": failure}
+    return {"success": success, "supported": claim_counts["supported"],
+            "claims": len(claims), "claim_counts": claim_counts, "failure": failure}
 
 
 def score_run(run, cases, reviews):
@@ -462,12 +472,17 @@ def score_run(run, cases, reviews):
         successes = sum(r["success"] for r in assessed)
         claims = sum(r["claims"] for r in assessed)
         supported = sum(r["supported"] for r in assessed)
+        claim_counts = {verdict: sum(r["claim_counts"][verdict] for r in assessed)
+                        for verdict in ("supported", "unsupported", "contradictory")}
         tokens = sum(r["diagnostics"]["usage"]["total_tokens"] for r in subset)
         missing = sum(r["diagnostics"]["usage_missing_calls"] for r in subset)
         summaries[mode] = {"case_success_rate": {"numerator": successes, "denominator": len(assessed),
                                                    "value": successes / len(assessed) if len(assessed) == len(subset) else None},
                            "evidence_support_rate": {"numerator": supported, "denominator": claims,
-                                                     "value": supported / claims if claims and len(assessed) == len(subset) else None},
+                                                     "value": supported / claims if claims and len(assessed) == len(subset) else None,
+                                                     "status": "unscored" if len(assessed) != len(subset) else
+                                                               "N/A" if not claims else "computed",
+                                                     "claim_counts": claim_counts},
                            "cost_per_successful_case": {"unit": "tokens", "total": tokens,
                               "value": tokens / successes if successes and not missing and len(assessed) == len(subset) else None,
                               "status": "unscored" if len(assessed) != len(subset) else
