@@ -48,7 +48,11 @@ def _needs_clarification(state):
     request = state["request"]
     advice = re.search(r"what (?:should|do) i do|how (?:should|do) i|respond|response|next steps|怎么办|如何处理|我该",
                        request["question"], re.I)
-    if request["kind"] != "email" or not advice:
+    account_impact = (re.search(r"\b(?:my|our)\s+account\b|我的(?:账户|账号)|(?:账户|账号)(?:是否|有没)",
+                                request["question"], re.I) and
+                      re.search(r"compromis|affect|impact|hack|breach|at risk|受到影响|受影响|被盗|失陷|泄露|有风险",
+                                request["question"], re.I))
+    if request["kind"] != "email" or not (advice or account_impact):
         return None
     facts = current_facts(state["facts"])
     if "clicked_link" not in facts:
@@ -95,7 +99,8 @@ def _build_graph(retriever, config, completion, checkpointer):
     def parse_node(state):
         request = state["request"]
         try:
-            parsed = parse_email(text=request["email_text"]) if "email_text" in request else parse_email(path=request["email_path"])
+            parsed = (parse_email(text=request["email_text"]) if request.get("email_text") is not None
+                      else parse_email(path=request["email_path"]))
         except Exception as exc:
             return {"tool_history": _record_tool(state, "parse_email", error=exc)}
         evidence = [*state["evidence"], {"id": "M1", "kind": "email", "tool": "parse_email", "data": parsed}]

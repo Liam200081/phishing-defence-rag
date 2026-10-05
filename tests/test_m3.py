@@ -88,6 +88,37 @@ class WorkflowTests(unittest.TestCase):
         self.assertEqual(state["status"], "completed")
         self.assertEqual(state["clarification"]["asked"], [])
 
+    def test_email_path_with_explicit_none_text_uses_path(self):
+        source = Path(self.tmp.name) / "message.eml"
+        source.write_text("From: alerts@example.org\nSubject: Path input\n\n"
+                          "Read https://example.org/login", encoding="utf-8")
+        state = self.workflow.run("path", {"kind": "email", "question": "Is this email suspicious?",
+                                           "email_path": str(source), "email_text": None})
+        self.assertEqual(state["tool_history"][0]["tool"], "parse_email")
+        self.assertEqual(state["tool_history"][0]["status"], "ok")
+        email = next(e["data"] for e in state["evidence"] if e["kind"] == "email")
+        self.assertEqual(email["source"], str(source))
+        self.assertEqual(email["subject"], "Path input")
+        self.assertEqual(email["urls"][0]["raw"], "https://example.org/login")
+
+    def test_account_impact_question_asks_only_for_decision_changing_facts(self):
+        mail = "From: a@example.org\nSubject: Check\n\nVisit https://example.org"
+        waiting = self.workflow.run("impact", {"kind": "email",
+            "question": "我的账户是否受到影响？", "email_text": mail})
+        self.assertEqual(waiting["status"], "waiting_clarification")
+        self.assertEqual(waiting["clarification"]["pending"], "clicked_link")
+        clicked = self.workflow.resume("impact", {"clicked_link": True})
+        self.assertEqual(clicked["clarification"]["pending"], "credential_submitted")
+        done = self.workflow.resume("impact", {"credential_submitted": False})
+        self.assertEqual(done["status"], "completed")
+        self.assertEqual(len(done["clarification"]["asked"]), 2)
+
+        opened = self.workflow.run("impact-opened", {"kind": "email",
+            "question": "Is my account compromised?", "email_text": mail,
+            "facts": {"clicked_link": False}})
+        self.assertEqual(opened["status"], "completed")
+        self.assertEqual(opened["clarification"]["asked"], [])
+
     def test_explicit_event_description_avoids_unnecessary_clarification(self):
         mail = "From: a@example.org\nSubject: Check\n\nVisit https://example.org"
         state = self.workflow.run("opened", {"kind": "email",
