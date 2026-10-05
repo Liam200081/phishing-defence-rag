@@ -1,6 +1,8 @@
 # ADR-002 M1 验收记录
 
-结论：**PASS：M1 验收标准全部满足，可以进入 M2。** 本次实现停止于 M1，未开始 M2。
+当前修复结论：**M1 FIX PASS**。M1-01 已修复，具体规则、回归测试和本轮结果见第 11 节；未开始 M2。
+
+以下第 1–10 节保留原 M1 提交的验收历史和当时测试数量，不代表本轮重跑结果。原始自测结论：**PASS：M1 验收标准全部满足，可以进入 M2。** 该结论随后被 Independent Review 修正为 PARTIAL（M1-01，Can proceed to M2: NO），问题历史和修复记录均保留于第 11 节。
 
 这个结论针对工程验收，不代表真实模型效果改善。未调用真实 Groq 生成 API，未复现缺失原始 PDF 的 B0 实验。
 
@@ -135,6 +137,38 @@
 
 运行依赖沿用原项目的 Chroma、Groq、PyMuPDF、SentenceTransformer、dotenv。`huggingface-hub` 已是 embedding 栈依赖，这里显式声明，用于记录准确权重 revision；未引入新的 RAG／Agent 框架。pandas/openpyxl 只留在历史查看可选依赖中；默认测试使用标准库。没有 LangGraph、邮件解析、IOC、Planner、Verifier、Registry 或预留 Agent 代码。
 
-## 10. 最终状态
+## 10. 原始自测最终状态（Independent Review 前）
 
 **PASS：M1 验收标准全部满足，可以进入 M2。** 未开始 M2；是否开展后续里程碑由下一轮任务决定。
+
+## 11. M1-01 Independent Review 与修复
+
+原 Review 结果：BLOCKER None、HIGH None、MEDIUM M1-01、LOW None；Overall PARTIAL；Can proceed to M2 NO。该发现不删除，也不将本轮自测冒充为新的 Independent Review 结论。
+
+**根因**：Q10 “What are best practices for reporting phishing attempts within an organization?” 先匹配通用 `what are` 规则，错误进入 `explanation`。旧测试验证了部分定义／对比／建议问题，但未逐题断言十题的预期类型。
+
+**实际修复**：仅在 `question_type` 中加入通用建议意图规则，匹配 best practice(s)、recommendation(s)、recommended、how to。优先级为 comparison → 明确 guidance 意图 → 通用 explanation → 默认 guidance。对比规则仍优先，普通 what is／what are 定义问题仍为 explanation。未使用 query ID、完整问题相等判断或针对 Q10 的运行时特殊分支；沿用现有类型值 `guidance`（即 practical guidance）及对应 Prompt，不修改 schema 或其他模块。
+
+**新增自动化测试（4 项）**：
+
+- `test_q10_uses_practical_guidance_prompt`：明确断言 Q10 为 guidance，并验证实际选择建议类 system prompt。
+- `test_original_ten_question_types`：逐题断言 Q1–Q10；Q4 为 explanation，Q8 为 comparison，其余八题为 guidance。
+- `test_plain_definitions_and_comparison_priority`：普通 what is／what are 定义保持 explanation；含 best practices 的显式比较仍走 comparison。
+- `test_guidance_variants_precede_generic_explanation`：六个 best practices、recommendation(s)、recommended、how to 变体，涵盖通用解释规则曾提前匹配的情况。
+
+先新增测试复现旧错误：4 个测试方法中出现 7 个失败断言（包含 subtests）；修复后全部通过。原有 definition／comparison／guidance、Q8、来源和 B0 保留测试均未删除。
+
+**本轮最终验证**：
+
+| 检查 | 总数 | passed | failed | skipped |
+|---|---:|---:|---:|---:|
+| 新增 question type 回归（已计入核心套件，不重复累计） | 4 | 4 | 0 | 0 |
+| 完整 M1 核心自动化测试 | 40 | 40 | 0 | 0 |
+| 真实 PDF／Chroma／Groq SDK 离线接口测试 | 3 | 3 | 0 | 0 |
+| 本轮完整套件合计 | 43 | 43 | 0 | 0 |
+
+本轮未重跑真实 embedding 下载场景或真实生成模型。第 6 节保存的原始冒烟记录保持不变，不冒充修复后运行结果。
+
+Git diff 仅包含 `src/phishing_agent/prompts.py`、`tests/test_m1.py` 和本验收文档。未修改 ingestion、retrieval、Context Builder、Q8、embedding、Chroma、trace schema、evaluation 口径或 B0 文件；未实现 M2–M6。
+
+**M1 FIX PASS**：M1-01 已修复；Q10 实际类型为 `guidance`，使用 practical guidance Prompt。以独立修复提交保存，不 amend 原 M1 commit。

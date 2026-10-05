@@ -158,6 +158,38 @@ class IngestAndRetrievalTests(unittest.TestCase):
 
 
 class PromptAndResponseTests(unittest.TestCase):
+    def test_q10_uses_practical_guidance_prompt(self):
+        query = next(q['query'] for q in QUERIES if q['query_id'] == 'Q10')
+        self.assertEqual(question_type(query), 'guidance')
+        kind, messages = build_messages(query, 'actual evidence', 'b1-v1')
+        self.assertEqual(kind, 'guidance')
+        self.assertIn('Give practical defensive or response guidance', messages[0]['content'])
+
+    def test_original_ten_question_types(self):
+        expected = {'Q1': 'guidance', 'Q2': 'guidance', 'Q3': 'guidance',
+                    'Q4': 'explanation', 'Q5': 'guidance', 'Q6': 'guidance',
+                    'Q7': 'guidance', 'Q8': 'comparison', 'Q9': 'guidance', 'Q10': 'guidance'}
+        self.assertEqual({q['query_id'] for q in QUERIES}, set(expected))
+        for q in QUERIES:
+            with self.subTest(query_id=q['query_id']):
+                self.assertEqual(question_type(q['query']), expected[q['query_id']])
+
+    def test_plain_definitions_and_comparison_priority(self):
+        for query in ('What is phishing?', 'What are phishing indicators?'):
+            with self.subTest(query=query):
+                self.assertEqual(question_type(query), 'explanation')
+        self.assertEqual(question_type('Compare best practices for reporting email and SMS phishing.'), 'comparison')
+
+    def test_guidance_variants_precede_generic_explanation(self):
+        for query in ('What are best practices for securing accounts?',
+                      'What are your recommendations for reporting suspicious messages?',
+                      'What is your recommendation for protecting an account?',
+                      'What is the recommended way to enable MFA?',
+                      'Explain how to report a suspicious email.',
+                      'How to report a suspicious email?'):
+            with self.subTest(query=query):
+                self.assertEqual(question_type(query), 'guidance')
+
     def test_question_types(self):
         for q, expected in [('What is spear phishing?', 'explanation'), (QUERIES[7]['query'], 'comparison'),
                             (QUERIES[0]['query'], 'guidance'), ('解释钓鱼攻击', 'explanation'), ('对比两种攻击', 'comparison')]:

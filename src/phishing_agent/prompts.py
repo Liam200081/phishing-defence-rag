@@ -6,6 +6,9 @@ def question_type(query):
     q = query.lower()
     if re.search(r"\b(differ\w*|compar\w*|versus|vs)\b|区别|对比|比较", q):
         return "comparison"
+    # Specific guidance intent takes precedence over generic "what is/are".
+    if re.search(r"\b(best[\s-]+practices?|recommendations?|recommended|how\s+to)\b", q):
+        return "guidance"
     if re.search(r"\b(what is|what are|define|explain)\b|什么是|解释|定义", q):
         return "explanation"
     return "guidance"
