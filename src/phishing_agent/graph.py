@@ -51,7 +51,8 @@ def _needs_clarification(state):
     account_impact = (re.search(r"\b(?:my|our)\s+account\b|我的(?:账户|账号)|(?:账户|账号)(?:是否|有没)",
                                 request["question"], re.I) and
                       re.search(r"compromis|affect|impact|hack|breach|at risk|tak(?:en|e)\s+over|takeover|"
-                                r"\b(?:attacker|someone|they|unauthori[sz]ed)\b.{0,40}\b(?:access|get into|got into|log(?:ged)? in)\b|"
+                                r"\b(?:attacker|someone|they|unauthori[sz]ed)\b.{0,40}\b(?:access(?:ed|ing)?|get into|got into|log(?:ged)? in)\b|"
+                                r"\baccount\b.{0,30}\b(?:been\s+)?accessed\b|"
                                 r"受到影响|受影响|被盗|失陷|泄露|有风险",
                                 request["question"], re.I))
     if request["kind"] != "email" or not (advice or account_impact):
