@@ -409,7 +409,7 @@ def score_result(result, case, review):
             sentence = next((part for part in re.split(r"(?<=[.!?])\s+|\n+", answer)
                              if claim["text"] in part), "")
             cited = set(re.findall(r"\[([EMI]\d+)\]", sentence))
-            if verdict == "supported" and cited and (cited - evidence.keys() or cited - set(refs)):
+            if cited and (cited - evidence.keys() or cited - set(refs)):
                 raise ValueError("answer citation does not match reviewed evidence")
             for ref, quote in zip(refs, quotes):
                 if ref not in evidence or not quote or quote not in _evidence_text(evidence[ref]):

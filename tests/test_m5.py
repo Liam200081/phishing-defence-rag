@@ -167,6 +167,13 @@ class M5Tests(unittest.TestCase):
                                     "evidence_quotes": ["Phishing links require caution"]})
         review["failure"] = None
         self.assertEqual(score_result(result, self.case, review)["claim_counts"]["contradictory"], 1)
+        valid_citation = deepcopy(result)
+        valid_citation["answer"]["answer"] = "Phishing links do not require caution [E1]."
+        self.assertEqual(score_result(valid_citation, self.case, review)["claim_counts"]["contradictory"], 1)
+        invalid_citation = deepcopy(result)
+        invalid_citation["answer"]["answer"] = "Phishing links do not require caution [E999]."
+        with self.assertRaises(ValueError):
+            score_result(invalid_citation, self.case, review)
         for invalid_quote in ([], ["Unseen opposite claim"]):
             bad = deepcopy(review)
             bad["claims"][0]["evidence_quotes"] = invalid_quote
