@@ -16,6 +16,7 @@ data/emails/
 build/
 dist/
 experiments/b1/
+experiments/m5/
 .pytest_cache/
 
 # W0 local checkpoints

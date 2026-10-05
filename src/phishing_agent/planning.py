@@ -42,6 +42,17 @@ def default_plan(state):
     return tasks
 
 
+def fixed_plan(state):
+    """W0's fixed tool path; the adaptive plan may specialize its knowledge query."""
+    request = state["request"]
+    plan = default_plan({**state, "facts": []})
+    for task in plan:
+        if task["tool"] == "retrieve_knowledge":
+            task["params"] = {"query": request["question"]}
+            task["fact_dependencies"] = []
+    return plan
+
+
 def validate_plan(tasks, request):
     if not isinstance(tasks, list) or not 1 <= len(tasks) <= LIMITS["tasks"]:
         raise ValueError("plan task count outside budget")

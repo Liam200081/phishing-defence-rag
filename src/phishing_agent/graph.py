@@ -10,7 +10,7 @@ from langgraph.graph import END, START, StateGraph
 from langgraph.types import Command, interrupt
 
 from .llm import generate, not_requested
-from .planning import LIMITS, default_plan, partition_corrected_tasks, tool_key, validate_plan
+from .planning import LIMITS, default_plan, fixed_plan, partition_corrected_tasks, tool_key, validate_plan
 from .prompts import build_messages
 from .rag.context import ContextBudgetError, build_context
 from .state import WorkflowState, current_facts, mark_unknown, update_facts
@@ -87,7 +87,8 @@ def _renumber_knowledge(evidence):
     return result
 
 
-def _build_graph(retriever, config, completion, checkpointer, planner=None, verifier=None):
+def _build_graph(retriever, config, completion, checkpointer, planner=None, verifier=None,
+                 planning_enabled=True, reflection_enabled=True, injected_tool_errors=None):
     graph = StateGraph(WorkflowState)
 
     def intake(state):
@@ -133,7 +134,8 @@ def _build_graph(retriever, config, completion, checkpointer, planner=None, veri
             if budget["llm"] >= LIMITS["llm"]:
                 return {"status": "limited", "recovery": "bounded_conclusion"}
             budget["llm"] += 1
-        tasks = validate_plan(planner(state) if planner else default_plan(state), state["request"])
+        tasks = validate_plan(planner(state) if planner else
+                              default_plan(state) if planning_enabled else fixed_plan(state), state["request"])
         return {"plan": tasks, "plan_revision": state.get("plan_revision", 0) + 1,
                 "budget": budget, "status": "running"}
 
@@ -167,6 +169,8 @@ def _build_graph(retriever, config, completion, checkpointer, planner=None, veri
         budget["tools"] += 1
         result, error = None, None
         try:
+            if injected_tool_errors and name in injected_tool_errors:
+                raise TimeoutError("scripted tool timeout")
             if name == "parse_email":
                 result = parse_email(**params)
             elif name == "analyze_iocs":
@@ -311,7 +315,7 @@ def _build_graph(retriever, config, completion, checkpointer, planner=None, veri
         return {"verification": findings, "recovery": action, "budget": budget}
 
     def route_answer(state):
-        return "finish" if state.get("recovery") == "bounded_conclusion" else "verify"
+        return "finish" if not reflection_enabled or state.get("recovery") == "bounded_conclusion" else "verify"
 
     def route_verify(state):
         action, budget = state["recovery"], state["budget"]
@@ -457,8 +461,10 @@ class A1Workflow:
 
 
 @contextmanager
-def open_workflow(sqlite_path, retriever, config, completion, planner=None, verifier=None):
+def open_workflow(sqlite_path, retriever, config, completion, planner=None, verifier=None,
+                  planning_enabled=True, reflection_enabled=True, injected_tool_errors=None):
     path = Path(sqlite_path)
     path.parent.mkdir(parents=True, exist_ok=True)
     with SqliteSaver.from_conn_string(str(path)) as checkpointer:
-        yield A1Workflow(_build_graph(retriever, config, completion, checkpointer, planner, verifier))
+        yield A1Workflow(_build_graph(retriever, config, completion, checkpointer, planner, verifier,
+                                      planning_enabled, reflection_enabled, injected_tool_errors))
