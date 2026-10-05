@@ -10,7 +10,7 @@ from langgraph.graph import END, START, StateGraph
 from langgraph.types import Command, interrupt
 
 from .llm import generate, not_requested
-from .planning import LIMITS, default_plan, tool_key, validate_plan
+from .planning import LIMITS, default_plan, partition_corrected_tasks, tool_key, validate_plan
 from .prompts import build_messages
 from .rag.context import ContextBudgetError, build_context
 from .state import WorkflowState, current_facts, mark_unknown, update_facts
@@ -95,10 +95,9 @@ def _build_graph(retriever, config, completion, checkpointer, planner=None, veri
         reported = _reported_actions(request["question"]) if request["kind"] == "email" else {}
         reported.update(supplied)
         old = current_facts(state.get("facts", []))
-        corrected = any(k in old and old[k] != v for k, v in reported.items())
+        changed = {k for k, v in reported.items() if k in old and old[k] != v}
         facts = update_facts(state.get("facts", []), reported, state["run_id"])
-        invalidated = [{**task, "status": "invalidated", "evidence_ref": []}
-                       for task in state.get("plan", [])] if corrected else []
+        invalidated, retained = partition_corrected_tasks(state.get("plan", []), changed)
         cache = state.get("cached", {})
         history = [{**h, "result_ref": f"{state['run_id']}:{h['tool']}:cached", "cached": True}
                    for h in cache.get("tool_history", []) if h["status"] == "ok"]
@@ -106,6 +105,7 @@ def _build_graph(retriever, config, completion, checkpointer, planner=None, veri
         evidence = [e for e in cache.get("evidence", []) if e["tool"] in valid_tools]
         return {"facts": facts, "tool_history": history, "evidence": evidence, "clarification": {},
                 "answer": {}, "verification": [], "plan": [], "invalidated_tasks": invalidated,
+                "retained_tasks": retained,
                 "plan_revision": 0, "budget": {k: 0 for k in ("tools", "llm", "retrieval_extra", "replans", "repairs", "clarifications", "retries")},
                 "recovery": "", "context": "", "status": "running"}
 
@@ -167,6 +167,11 @@ def _build_graph(retriever, config, completion, checkpointer, planner=None, veri
             evidence.append({"id": "M1", "kind": "email", "tool": name, "data": result})
             facts = update_facts(facts, {"email_subject": result["subject"], "email_from": result["from"],
                                          "email_sha256": result["sha256"]}, state["run_id"], "observed")
+            descendants = {task["task_id"]}
+            for dependent in plan:
+                if dependent["status"] == "skipped" and descendants.intersection(dependent["dependency"]):
+                    dependent["status"] = "pending"
+                    descendants.add(dependent["task_id"])
         elif name == "analyze_iocs" and result:
             evidence.append({"id": "I1", "kind": "iocs", "tool": name, "data": result})
         elif name == "retrieve_knowledge" and result:
@@ -213,9 +218,15 @@ def _build_graph(retriever, config, completion, checkpointer, planner=None, veri
                 "clarification": {**state["clarification"], "pending": None, "question": None},
                 "status": "running"}
         if corrected:
-            changes.update({"invalidated_tasks": [*state.get("invalidated_tasks", []),
-                           *({**task, "status": "invalidated", "evidence_ref": []} for task in state["plan"])],
-                            "plan": [], "answer": {}, "verification": [], "recovery": "replan"})
+            invalidated, retained = partition_corrected_tasks(state["plan"], {field})
+            affected_keys = {tool_key(t["tool"], t["params"]) for t in invalidated}
+            affected_tools = {t["tool"] for t in invalidated}
+            changes.update({"invalidated_tasks": [*state.get("invalidated_tasks", []), *invalidated],
+                            "retained_tasks": [*state.get("retained_tasks", []), *retained],
+                            "tool_history": [h for h in state["tool_history"] if h.get("key") not in affected_keys],
+                            "evidence": [e for e in state["evidence"] if e["tool"] not in affected_tools],
+                            "plan": [], "answer": {}, "verification": [], "context": "", "recovery": "replan",
+                            "budget": {**state["budget"], "replans": state["budget"]["replans"] + 1}})
         return changes
 
     def route_clarify(state):
@@ -313,14 +324,20 @@ def _build_graph(retriever, config, completion, checkpointer, planner=None, veri
         tasks.append({"task_id": f"R{budget['retrieval_extra']}", "goal": "Fill knowledge gap",
                       "tool": "retrieve_knowledge", "params": {"query": state["request"]["question"] + " authoritative phishing guidance"},
                       "dependency": [], "completion_condition": "tool result recorded", "status": "pending", "evidence_ref": []})
-        return {"budget": budget, "plan": tasks, "context": ""}
+        return {"budget": budget, "plan": tasks, "context": "", "status": "running"}
 
     def retry(state):
         tasks = [dict(t) for t in state["plan"]]
         failed = next((t for t in tasks if t["status"] == "error"), None)
         if failed:
             failed["status"] = "pending"
-        return {"plan": tasks, "context": "", "budget": {**state["budget"], "retries": state["budget"]["retries"] + 1}}
+            descendants = {failed["task_id"]}
+            for task in tasks:
+                if task["status"] == "skipped" and descendants.intersection(task["dependency"]):
+                    task["status"] = "pending"
+                    descendants.add(task["task_id"])
+        return {"plan": tasks, "context": "", "status": "running",
+                "budget": {**state["budget"], "retries": state["budget"]["retries"] + 1}}
 
     def replan(state):
         return {"invalidated_tasks": [*state.get("invalidated_tasks", []),
@@ -396,9 +413,10 @@ class A1Workflow:
                 request.get("email_text") == old_request.get("email_text")):
             old_facts = current_facts(previous.get("facts", []))
             supplied = request.get("facts", {})
-            corrected = isinstance(supplied, dict) and any(name in old_facts and old_facts[name] != value
-                            for name, value in supplied.items())
-            usable = {"parse_email", "analyze_iocs"} if corrected and request.get("kind") == "email" else None
+            changed = ({name for name, value in supplied.items() if name in old_facts and old_facts[name] != value}
+                       if isinstance(supplied, dict) else set())
+            _, retained = partition_corrected_tasks(previous.get("plan", []), changed)
+            usable = {t["tool"] for t in retained} if changed else None
             cache = {"tool_history": [h for h in previous.get("tool_history", []) if usable is None or h["tool"] in usable],
                      "evidence": [e for e in previous.get("evidence", []) if usable is None or e["tool"] in usable]}
         result = self.graph.invoke({"case_id": case_id, "run_id": run_id or uuid.uuid4().hex,

@@ -18,7 +18,7 @@ def default_plan(state):
         tasks.append({"task_id": f"T{len(tasks) + 1}", "goal": goal, "tool": tool,
                       "params": params, "dependency": list(dependency),
                       "completion_condition": "tool result recorded", "status": "pending",
-                      "evidence_ref": []})
+                      "evidence_ref": [], "fact_dependencies": []})
     if request["kind"] == "email":
         params = ({"text": request["email_text"]} if request.get("email_text") is not None
                   else {"path": request["email_path"]})
@@ -36,6 +36,7 @@ def default_plan(state):
             focus = "phishing email indicators and possible response"
         query = request["question"] + " " + focus
         add("retrieve_knowledge", "Find " + focus, {"query": query}, ("T1",))
+        tasks[-1]["fact_dependencies"] = ["clicked_link", "credential_submitted"]
     else:
         add("retrieve_knowledge", "Find evidence for the question", {"query": request["question"]})
     return tasks
@@ -59,6 +60,9 @@ def validate_plan(tasks, request):
             raise ValueError("task goal and completion condition required")
         if task["status"] != "pending" or task["evidence_ref"] != []:
             raise ValueError("new tasks must be pending without evidence")
+        if (not isinstance(task.get("fact_dependencies", []), list) or
+                any(not isinstance(name, str) or not name for name in task.get("fact_dependencies", []))):
+            raise ValueError("invalid fact dependencies")
         deps = task["dependency"]
         if not isinstance(deps, list) or len(deps) != len(set(deps)) or any(d not in seen for d in deps):
             raise ValueError("dependencies must refer to earlier tasks")
@@ -80,3 +84,16 @@ def validate_plan(tasks, request):
         calls.add(key)
         seen.add(task_id)
     return tasks
+
+
+def partition_corrected_tasks(tasks, changed_facts):
+    """Invalidate only tasks using corrected facts and their descendants."""
+    affected = set()
+    invalidated, retained = [], []
+    for task in tasks:
+        if changed_facts.intersection(task.get("fact_dependencies", [])) or affected.intersection(task["dependency"]):
+            affected.add(task["task_id"])
+            invalidated.append({**task, "status": "invalidated", "evidence_ref": []})
+        else:
+            retained.append(dict(task))
+    return invalidated, retained

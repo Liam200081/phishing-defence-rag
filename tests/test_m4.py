@@ -3,11 +3,14 @@ from pathlib import Path
 import sys
 import tempfile
 import unittest
+from unittest.mock import patch
 
 sys.path.insert(0, str(Path(__file__).resolve().parents[1] / "src"))
 from phishing_agent.graph import open_workflow
-from phishing_agent.planning import default_plan, validate_plan
+from phishing_agent.planning import default_plan, partition_corrected_tasks, validate_plan
 from phishing_agent.verification import finding, verify
+from phishing_agent.rag.context import build_context as real_build_context
+import phishing_agent.graph as graph_module
 
 CONFIG = {"top_k": 1, "context_budget_chars": 10000, "prompt_version": "b1-v1",
           "model": "test", "generation": {"max_tokens": 100, "temperature": 0, "top_p": 1}}
@@ -95,7 +98,10 @@ class M4Tests(unittest.TestCase):
         second = w.run("correction", {"kind": "email", "question": "Is this suspicious?",
                                       "email_text": MAIL, "facts": {"clicked_link": False}})
         self.assertTrue(first["answer"])
-        self.assertTrue(all(t["status"] == "invalidated" for t in second["invalidated_tasks"]))
+        self.assertEqual([(t["task_id"], t["status"]) for t in second["invalidated_tasks"]],
+                         [("T3", "invalidated")])
+        self.assertEqual([(t["task_id"], t["status"]) for t in second["retained_tasks"]],
+                         [("T1", "ok"), ("T2", "ok")])
         self.assertEqual(second["verification"], [])
         self.assertEqual(len(self.retriever.calls), calls + 1)
         self.assertEqual([h.get("cached", False) for h in second["tool_history"]], [True, True, False])
@@ -112,6 +118,74 @@ class M4Tests(unittest.TestCase):
         state = self.workflow(completion=bad_then_good).run("repair", {"kind": "knowledge", "question": "What is phishing?"})
         self.assertEqual(state["budget"]["repairs"], 1)
         self.assertEqual(len(calls), 2)
+        self.assertEqual(state["status"], "completed")
+
+    def test_valid_citation_cannot_support_invented_claim(self):
+        state = {"request": {"kind": "knowledge", "question": "What is phishing?"},
+                 "answer": {"answer": "Phishing links reveal employee salary data [E1]."},
+                 "evidence": [{"id": "E1", "kind": "knowledge", "data": HIT}],
+                 "context": real_build_context([HIT], 10000)["text"],
+                 "facts": [], "tool_history": []}
+        result = verify(state)
+        self.assertEqual(result[0]["failure_type"], "unsupported_claim")
+        self.assertEqual(result[0]["recovery_action"], "repair_answer")
+        state["answer"]["answer"] = "Phishing links are not suspicious [E1]."
+        self.assertEqual(verify(state)[0]["failure_type"], "unsupported_claim")
+
+    def test_context_omission_rebuilds_before_final_answer(self):
+        omitted = {"request": {"kind": "knowledge", "question": "What is phishing?"},
+                   "answer": {"answer": "Phishing links require caution [E1]."},
+                   "evidence": [{"id": "E1", "kind": "knowledge", "data": HIT}],
+                   "context": "[E1] Phishing", "facts": [], "tool_history": []}
+        self.assertEqual(verify(omitted)[0]["recovery_action"], "rebuild_context")
+        calls = []
+        def incomplete_then_full(hits, budget):
+            calls.append(1)
+            if len(calls) == 1:
+                return {"text": "[E1] test.pdf | pages 1-1 | c1\nPhishing", "evidence": []}
+            return real_build_context(hits, budget)
+        with patch.object(graph_module, "build_context", side_effect=incomplete_then_full):
+            state = self.workflow().run("context", {"kind": "knowledge", "question": "What is phishing?"})
+        self.assertEqual(len(calls), 2)
+        self.assertEqual(state["budget"]["repairs"], 1)
+        self.assertEqual(state["status"], "completed")
+        self.assertIn(HIT["text"], state["context"])
+
+    def test_unrelated_fact_correction_retains_knowledge_task(self):
+        w = self.workflow()
+        request = {"kind": "knowledge", "question": "What is phishing?"}
+        w.run("unrelated", {**request, "facts": {"device": "laptop"}})
+        state = w.run("unrelated", {**request, "facts": {"device": "phone"}})
+        self.assertEqual(state["invalidated_tasks"], [])
+        self.assertEqual([(t["tool"], t["status"]) for t in state["retained_tasks"]],
+                         [("retrieve_knowledge", "ok")])
+        self.assertEqual(len(self.retriever.calls), 1)
+
+    def test_fact_dependency_invalidation_propagates_to_descendants(self):
+        tasks = [
+            {"task_id": "A", "dependency": [], "fact_dependencies": ["clicked_link"], "status": "ok", "evidence_ref": ["E1"]},
+            {"task_id": "B", "dependency": ["A"], "fact_dependencies": [], "status": "ok", "evidence_ref": ["E2"]},
+            {"task_id": "C", "dependency": [], "fact_dependencies": [], "status": "ok", "evidence_ref": ["E3"]},
+        ]
+        invalidated, retained = partition_corrected_tasks(tasks, {"clicked_link"})
+        self.assertEqual([t["task_id"] for t in invalidated], ["A", "B"])
+        self.assertEqual([(t["task_id"], t["status"]) for t in retained], [("C", "ok")])
+
+    def test_parse_retry_success_reactivates_ioc_dependency(self):
+        real_parse = graph_module.parse_email
+        calls = []
+        def flaky_parse(**kwargs):
+            calls.append(1)
+            if len(calls) == 1:
+                raise TimeoutError()
+            return real_parse(**kwargs)
+        with patch.object(graph_module, "parse_email", side_effect=flaky_parse):
+            state = self.workflow().run("parse-retry", {"kind": "email", "question": "Is this suspicious?",
+                                                       "email_text": MAIL})
+        self.assertEqual(len(calls), 2)
+        self.assertEqual([(t["tool"], t["status"]) for t in state["plan"]],
+                         [("parse_email", "ok"), ("analyze_iocs", "ok"), ("retrieve_knowledge", "ok")])
+        self.assertEqual([h["status"] for h in state["tool_history"]], ["error", "ok", "ok", "ok"])
         self.assertEqual(state["status"], "completed")
 
     def test_knowledge_gap_uses_targeted_retrieval_then_stops(self):

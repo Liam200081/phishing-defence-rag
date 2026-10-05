@@ -19,6 +19,7 @@ class WorkflowState(TypedDict, total=False):
     context: str
     plan_revision: int
     invalidated_tasks: list[dict[str, Any]]
+    retained_tasks: list[dict[str, Any]]
     cached: dict[str, Any]
 
 
