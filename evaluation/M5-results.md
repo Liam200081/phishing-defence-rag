@@ -1,6 +1,6 @@
 # M5 运行记录与验收状态
 
-## 当前 HEAD 批次
+## 已保存批次（代码提交 8db5acc）
 
 - 运行 ID：`M5-98428c89cc5c4278802f69c971808c15`；代码提交：`8db5acce07b34dd07c97e770da7ca44bb02fc09a`，启动时 Git clean。
 - 数据：development 12 Case × B1、W0、A1、A1-no-planning、A1-no-reflection；预期 60 条，实际保存于 `experiments/m5/<run_id>/partial.json` 的结果为 **57/60**。运行被人工停止；该批次不是完整对照，不能用于三项核心 KPI。
