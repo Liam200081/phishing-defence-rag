@@ -31,6 +31,26 @@ with a maximum length of 128.
 }
 ```
 
+### `POST /api/analyze/file`
+
+Creates an email case through the same A1 workflow as `POST /api/analyze`. Send
+`multipart/form-data` with a required `file` field and an optional
+`incident_description` text field. The filename must end in `.eml` (case
+insensitive), the file must not be empty, and the maximum size is 1,000,000 bytes.
+The server reads the upload in bounded chunks and does not retain it.
+
+```text
+Content-Type: multipart/form-data
+
+file=@notice.eml;type=message/rfc822
+incident_description=What should I do?
+```
+
+The response is the same Case response documented below. The raw RFC 822 bytes
+are passed as `email_text` to the existing A1 workflow, whose existing
+`parse_email` tool performs parsing. The upload adapter does not execute
+attachments, open URLs, or load external HTML resources.
+
 ### `POST /api/cases/{case_id}/reply`
 
 Answers the case's current clarification and resumes the same SQLite-checkpointed
@@ -89,8 +109,10 @@ Errors retain the case response shape and set `status` to `failed`:
 }
 ```
 
-- `400`: semantically invalid input, invalid reply, duplicate case, or no pending clarification
+- `400`: semantically invalid input, invalid `.eml`, empty upload, parse failure, invalid reply,
+  duplicate case, or no pending clarification
 - `404`: unknown `case_id`
+- `413`: `.eml` upload exceeds 1,000,000 bytes
 - `422`: JSON/schema validation failure
 - `429`: upstream model rate limit (`retryable: true`)
 - `500`: sanitized internal error

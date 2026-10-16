@@ -9,7 +9,7 @@ import re
 from typing import Any, Literal
 import uuid
 
-from fastapi import FastAPI, Request
+from fastapi import FastAPI, File, Form, Request, UploadFile
 from fastapi.exceptions import RequestValidationError
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.responses import JSONResponse
@@ -23,6 +23,8 @@ from .rag.retrieve import ChromaRetriever
 
 
 ROOT = Path(__file__).resolve().parents[2]
+MAX_EML_BYTES = 1_000_000
+UPLOAD_CHUNK_BYTES = 64 * 1024
 CASE_ID = re.compile(r"^[A-Za-z0-9][A-Za-z0-9._:-]{0,127}$")
 TRUE_REPLIES = {"yes", "y", "true", "1", "是", "有", "点击了", "输入了"}
 FALSE_REPLIES = {"no", "n", "false", "0", "否", "没有", "未点击", "未输入"}
@@ -173,6 +175,29 @@ def _reply_value(reply: bool | str) -> bool:
     raise ApiError(400, "invalid_reply", "reply must be a boolean or an unambiguous yes/no answer")
 
 
+def _parse_email_failed(state: dict[str, Any]) -> bool:
+    return any(row.get("tool") == "parse_email" and row.get("status") == "error"
+               for row in state.get("tool_history") or [])
+
+
+async def _read_eml(upload: UploadFile) -> bytes:
+    filename = upload.filename or ""
+    if Path(filename).suffix.lower() != ".eml":
+        await upload.close()
+        raise ApiError(400, "invalid_file_type", "file must have a .eml extension")
+    content = bytearray()
+    try:
+        while chunk := await upload.read(UPLOAD_CHUNK_BYTES):
+            content.extend(chunk)
+            if len(content) > MAX_EML_BYTES:
+                raise ApiError(413, "file_too_large", f"file exceeds the {MAX_EML_BYTES}-byte limit")
+    finally:
+        await upload.close()
+    if not content:
+        raise ApiError(400, "empty_file", "file must not be empty")
+    return bytes(content)
+
+
 @contextmanager
 def _default_workflow():
     config_path = Path(os.getenv("PHISHING_API_CONFIG", str(ROOT / "config.json")))
@@ -242,6 +267,20 @@ def create_app(workflow=None) -> FastAPI:
                            case_id=args[0] if args else None, retryable=True)
         return result
 
+    async def start_case(request: dict[str, Any], case_id: str | None = None):
+        selected_case_id = case_id or uuid.uuid4().hex
+        if not _valid_case_id(selected_case_id):
+            raise ApiError(400, "invalid_case_id", "case_id format is invalid",
+                           case_id=selected_case_id)
+        existing = await call_workflow("state", selected_case_id)
+        if existing:
+            raise ApiError(400, "case_exists", "case_id already exists", case_id=selected_case_id)
+        state = await call_workflow("run", selected_case_id, request)
+        if request.get("kind") == "email" and _parse_email_failed(state):
+            raise ApiError(400, "email_parse_error", "the .eml message could not be parsed",
+                           case_id=selected_case_id)
+        return _to_response(state, selected_case_id)
+
     @application.post("/api/analyze", response_model=CaseResponse)
     async def analyze(payload: AnalyzeRequest):
         email_text = payload.email_text
@@ -252,12 +291,6 @@ def create_app(workflow=None) -> FastAPI:
             raise ApiError(400, "invalid_input", "incident_description must not be blank")
         if email_text is None and description is None:
             raise ApiError(400, "invalid_input", "email_text or incident_description is required")
-        case_id = payload.case_id or uuid.uuid4().hex
-        if not _valid_case_id(case_id):
-            raise ApiError(400, "invalid_case_id", "case_id format is invalid", case_id=case_id)
-        existing = await call_workflow("state", case_id)
-        if existing:
-            raise ApiError(400, "case_exists", "case_id already exists", case_id=case_id)
         if email_text is not None:
             request = {
                 "kind": "email",
@@ -266,8 +299,27 @@ def create_app(workflow=None) -> FastAPI:
             }
         else:
             request = {"kind": "knowledge", "question": description.strip()}
-        state = await call_workflow("run", case_id, request)
-        return _to_response(state, case_id)
+        return await start_case(request, payload.case_id)
+
+    @application.post("/api/analyze/file", response_model=CaseResponse)
+    async def analyze_file(file: UploadFile | None = File(default=None),
+                           incident_description: str | None = Form(default=None)):
+        if file is None:
+            raise ApiError(400, "missing_file", "file is required")
+        if incident_description is not None and not incident_description.strip():
+            await file.close()
+            raise ApiError(400, "invalid_input", "incident_description must not be blank")
+        if incident_description is not None and len(incident_description) > 20_000:
+            await file.close()
+            raise ApiError(400, "invalid_input", "incident_description is too long")
+        content = await _read_eml(file)
+        request = {
+            "kind": "email",
+            "question": (incident_description.strip() if incident_description
+                         else "Is this email suspicious?"),
+            "email_text": content,
+        }
+        return await start_case(request)
 
     @application.post("/api/cases/{case_id}/reply", response_model=CaseResponse)
     async def reply(case_id: str, payload: ReplyRequest):
